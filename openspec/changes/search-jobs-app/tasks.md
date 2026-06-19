@@ -51,9 +51,9 @@ Decision needed before apply: Yes (resolved → stacked-to-main)
 - [x] 4.2 `backend/app/portals/schemas.py` — PortalCreate, PortalResponse, PortalSelectors schemas
 - [x] 4.3 `backend/app/scrapers/engine.py` — Core scraping engine with Playwright
 - [x] 4.4 `backend/app/scrapers/builtin/linkedin.py` — LinkedIn selector config
-- [ ] 4.5 `backend/app/scrapers/builtin/infojobs.py` — Infojobs selector config
-- [ ] 4.6 `backend/app/scrapers/builtin/computrabajo.py` — Computrabajo selector config
-- [ ] 4.7 `backend/app/scrapers/builtin/bumeran.py` — Bumeran selector config
+- [x] 4.5 `backend/app/scrapers/builtin/infojobs.py` — Infojobs selector config
+- [x] 4.6 `backend/app/scrapers/builtin/computrabajo.py` — Computrabajo selector config
+- [x] 4.7 `backend/app/scrapers/builtin/bumeran.py` — Bumeran selector config
 - [x] 4.8 Dry-run test mode for portal selectors
 
 ## Phase 5: Worker Pipeline (future)
