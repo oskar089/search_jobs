@@ -58,12 +58,12 @@ Decision needed before apply: Yes (resolved → stacked-to-main)
 
 ## Phase 5: Worker Pipeline (future)
 
-- [ ] 5.1 Celery app setup in `backend/app/celery_app.py`
-- [ ] 5.2 Task: scrape portal (Playwright + selectors → StoredJobs)
-- [ ] 5.3 Task: match + score (profile → StoredJob → score)
-- [ ] 5.4 Task: apply (Playwright form fill + cover letter)
-- [ ] 5.5 Task: notify (in-app notification + email)
-- [ ] 5.6 PipelineRun state machine orchestrator
+- [x] 5.1 Celery app setup in `backend/app/celery_app.py`
+- [x] 5.2 Task: scrape portal (Playwright + selectors → StoredJobs)
+- [x] 5.3 Task: match + score (profile → StoredJob → score)
+- [x] 5.4 Task: apply (Playwright form fill + cover letter)
+- [x] 5.5 Task: notify (in-app notification + email)
+- [x] 5.6 PipelineRun state machine orchestrator
 
 ## Phase 6: Frontend (future)
 
