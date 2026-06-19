@@ -14,7 +14,8 @@ Automate the full job search pipeline: scrape multiple portals, match postings a
 - Profile-driven job matching with auto-application
 - AI cover letter generation (dynamic language, formal tone)
 - Email + dashboard notifications with full history
-- Node.js/TypeScript backend with Playwright scraping
+- Python backend (FastAPI) with Playwright + BeautifulSoup
+- SQLAlchemy + Alembic for database (using existing Neon PostgreSQL)
 
 ### Out of Scope
 
@@ -45,22 +46,23 @@ None — first change on empty project.
 
 ## Approach
 
-Node.js/TypeScript monorepo. Playwright handles both scraping (job retrieval) and automation (auto-application). Scraping uses a plugin-like architecture: per-portal selector configs stored in DB, users configure custom portals via CSS/XPath selectors from their dashboard. LLM API (OpenAI/Claude) generates cover letters per job posting language. PostgreSQL for multi-user data. Dashboard renders via a lightweight frontend framework (Next.js or similar). Workers orchestrate scrape→match→apply→notify pipeline.
+Python monorepo with FastAPI backend. Playwright (Python binding) handles scraping and auto-application; Celery + Redis orchestrates the worker pipeline (scrape→match→apply→notify). SQLAlchemy + Alembic for database access and migrations over PostgreSQL (Neon). LLM API (OpenAI/Claude) generates cover letters per job posting language. Frontend dashboard in React/Vite, fully decoupled from the Python backend via REST API.
 
 ## Affected Areas
 
 | Area | Impact | Description |
 |------|--------|-------------|
-| `/src/auth/` | New | User registration, login, sessions |
-| `/src/scrapers/` | New | Pluggable scraping engine with per-portal selector configs |
-| `/src/portal-config/` | New | User-facing UI to add/edit portals, selectors, rules |
-| `/src/matching/` | New | Profile-job match engine |
-| `/src/cover-letter/` | New | AI prompt construction and generation |
-| `/src/applicator/` | New | Auto-submit via Playwright |
-| `/src/notifications/` | New | Email + dashboard notification |
-| `/src/web/` | New | Dashboard frontend |
-| `/prisma/` | New | Database schema |
-| `/infra/` | New | Docker, CI/CD config |
+| `backend/app/auth/` | New | User registration, login, JWT sessions |
+| `backend/app/scrapers/` | New | Pluggable scraping engine via Playwright |
+| `backend/app/portal_config/` | New | Portal config CRUD + dry-run |
+| `backend/app/matching/` | New | Profile-job match engine |
+| `backend/app/cover_letter/` | New | AI prompt construction and generation |
+| `backend/app/applicator/` | New | Auto-submit via Playwright |
+| `backend/app/notifications/` | New | Email + in-app notifications |
+| `backend/app/models/` | New | SQLAlchemy models |
+| `backend/alembic/` | New | Database migrations |
+| `frontend/` | New | React/Vite dashboard |
+| `infra/` | New | Docker, CI/CD config |
 
 ## Risks
 
@@ -74,16 +76,18 @@ Node.js/TypeScript monorepo. Playwright handles both scraping (job retrieval) an
 
 ## Rollback Plan
 
-- Database: Prisma migrations are reversible — `prisma migrate down` to roll back schema
+- Database: Alembic migrations are reversible — `alembic downgrade -1` to roll back
 - No production data loss risk during early dev (no real users yet)
 - Git revert change branch, drop deployment, re-scaffold
 - Scrapers: feature-flagged — disable per portal without full rollback
 
 ## Dependencies
 
-- Playwright (browser automation)
+- Python 3.12+ / FastAPI
+- Playwright (Python binding) + BeautifulSoup
+- Celery + Redis (worker pipeline)
 - LLM API key (OpenAI or Claude)
-- PostgreSQL instance
+- Neon PostgreSQL (existing)
 - SMTP server (email notifications)
 
 ## Success Criteria

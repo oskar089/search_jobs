@@ -1,32 +1,39 @@
-# Design: Search Jobs App
+# Design: Search Jobs App — Python Stack
 
 ## Technical Approach
 
-Monorepo (npm workspaces + Turborepo) with three runtimes: Next.js web app (dashboard + API routes), background worker (scrape→match→apply→notify pipeline as a long-lived Node.js process), and shared packages (database client, scraper engine, matcher, cover letter generator, notifier). Prisma + PostgreSQL for persistence. Playwright for both scraping and application automation. JWT auth (bcrypt + jsonwebtoken) — no framework coupling, works for both web and worker.
+Python backend (FastAPI) with a decoupled React/Vite frontend. SQLAlchemy async + Alembic for database persistence over existing Neon PostgreSQL. Celery + Redis orchestrates the background worker pipeline (scrape → match → apply → notify). Playwright (Python binding) handles both scraping and auto-application browser automation. Pydantic v2 for request/response validation. JWT auth via python-jose + passlib (bcrypt). httpx for outbound HTTP. LLM API (OpenAI/Claude) generates cover letters per posting language.
 
 ## Architecture Decisions
 
-### Monorepo layout
+### Web framework
 
 | Option | Tradeoff | Decision |
 |--------|----------|----------|
-| Single Next.js app | API + worker in same process, no separation | ❌ |
-| Separate repos | Shared types/DB client versioning overhead | ❌ |
-| npm workspaces monorepo | Shared packages, independent deploy, single repo | ✅ |
+| Django + DRF | Heavy, opinionated, unnecessary for mostly-async API | ❌ |
+| FastAPI | Native async, Pydantic v2 built-in, auto OpenAPI docs, modern async SQLAlchemy | ✅ |
+
+### Database layer
+
+| Option | Tradeoff | Decision |
+|--------|----------|----------|
+| SQLAlchemy sync + psycopg2 | Simpler but blocks on I/O; can't use `async for` in routes | ❌ |
+| SQLAlchemy async + asyncpg | Native async, matches FastAPI event loop, Alembic supports async migrations | ✅ |
 
 ### Auth strategy
 
 | Option | Tradeoff | Decision |
 |--------|----------|----------|
-| NextAuth.js | Heavy for email-only; ties to Next.js runtime | ❌ |
-| Direct JWT | Works in Next.js API + worker; bcrypt + jsonwebtoken | ✅ |
+| FastAPI OAuth2 with JWT Bearer | Built-in `OAuth2PasswordBearer`, works with OpenAPI docs UI | ✅ |
+| Session-based (starlette sessions) | Stateful, requires Redis or DB store, more infra | ❌ |
 
 ### Worker orchestration
 
 | Option | Tradeoff | Decision |
 |--------|----------|----------|
-| Bull/Redis queue | Ops overhead (Redis); overkill for personal tool | ❌ |
-| DB polling loop | Simple; no extra infra; Prisma polls `pipeline_runs` table | ✅ |
+| Celery + Redis | Mature, reliable, beat scheduler, retries, task monitoring (Flower) | ✅ |
+| DB polling loop | Simpler (no Redis), but no built-in retry, scheduling, or monitoring | ❌ |
+| Arq | Lighter than Celery, Redis-based, native async | Consider for future — less ecosystem |
 
 ### Scraping architecture
 
@@ -42,35 +49,56 @@ Monorepo (npm workspaces + Turborepo) with three runtimes: Next.js web app (dash
 | Random click sequences | More human-like but fragile to layout changes | ❌ |
 | Wait + retry with human delays | Good balance of reliability and simplicity | ✅ |
 
+### Async client for outbound HTTP
+
+| Option | Tradeoff | Decision |
+|--------|----------|----------|
+| httpx | Native async, matches FastAPI event loop, client/server both async | ✅ |
+| requests | Sync-only, blocks event loop, needs thread pool wrapper | ❌ |
+
+### CLI / dev tooling
+
+| Option | Tradeoff | Decision |
+|--------|----------|----------|
+| pip + requirements.txt | Universal, CI-friendly, no extra tooling | ✅ (primary) |
+| Poetry | Lockfile, dependency resolution, but extra tool to install | Optional — `pyproject.toml` supports both |
+
+### Testing
+
+| Option | Tradeoff | Decision |
+|--------|----------|----------|
+| pytest + pytest-asyncio | Standard for FastAPI projects, async test support, fixture system | ✅ |
+| unittest | No async support, more boilerplate | ❌ |
+
 ## Data Flow
 
 ```
-                         ┌──────────────────┐
-                         │   User Dashboard  │
-                         │   (Next.js App)   │
-                         └────────┬─────────┘
-                                  │ REST (/api/*)
-                                  ▼
+                          ┌──────────────────┐
+                          │   User Dashboard  │
+                          │   (React/Vite)    │
+                          └────────┬─────────┘
+                                   │ REST (/api/*)
+                                   ▼
 ┌──────────────────────────────────────────────────────┐
-│                   Next.js API Routes                   │
+│                  FastAPI Backend                       │
 │  /api/auth/*  /api/portals/*  /api/profiles/*          │
 │  /api/applications/*  /api/notifications/*             │
 └────────────────────────┬───────────────────────────────┘
                          │
                          ▼
 ┌──────────────────────────────────────────────────────┐
-│                  Prisma (PostgreSQL)                    │
+│              SQLAlchemy (async) + PostgreSQL            │
 │  Users, Profiles, Portals, StoredJobs, Applications,   │
-│  PipelineRuns, Notifications                           │
+│  PipelineRuns, Notifications, ScrapeSessions           │
 └────────────────────────┬───────────────────────────────┘
-                         │ poll
+                         │ Celery task
                          ▼
 ┌──────────────────────────────────────────────────────┐
-│                 Worker (Node.js process)                │
+│           Celery Worker (Redis broker)                 │
 │  ┌────────┐  ┌────────────┐  ┌────────┐  ┌────────┐  │
 │  │Scrape  │→ │Match+Score │→ │Apply   │→ │Notify  │  │
 │  │Playwr. │  │(≥threshold)│  │Playwr. │  │Email+  │  │
-│  │SaveJobs│  │            │  │+LLM CL │  │In-App  │  │
+│  │+BS4    │  │            │  │+LLM CL │  │In-App  │  │
 │  └────────┘  └────────────┘  └────────┘  └────────┘  │
 └──────────────────────────────────────────────────────┘
 ```
@@ -78,339 +106,349 @@ Monorepo (npm workspaces + Turborepo) with three runtimes: Next.js web app (dash
 **Scrape → Match pipeline detail:**
 
 ```
-Worker polls pipeline_runs WHERE status='pending'
-  → Step 1: Load PortalConfig selectors from DB
-  → Step 2: Playwright opens portal URL, extracts job cards
-  → Step 3: Parse each card using selectors, save StoredJobs
-  → Step 4: Load User Profile, score each StoredJob
-  → Step 5: If score ≥ threshold → create Application (pending)
-  → Step 6: Playwright navigates to apply page, fills form
-  → Step 7: Generate cover letter via LLM (formal, language matches posting)
-  → Step 8: Submit, update Application status
-  → Step 9: Create Notification (in-app row + email send)
-  → Step 10: Update PipelineRun status = 'completed'
+Celery beat triggers PipelineRun → status='pending'
+  → Task 1 (scrape): Load PortalConfig selectors from DB
+    → Playwright opens portal URL, extracts job cards
+    → Parse each card using selectors, save StoredJobs
+  → Task 2 (match): Load User Profile, score each StoredJob
+    → If score ≥ threshold → create Application (pending)
+  → Task 3 (apply): Playwright navigates to apply page
+    → Generate cover letter via LLM API (formal, matches posting language)
+    → Fill form, submit, update Application status
+  → Task 4 (notify): Create Notification (in-app row + email send)
+  → Mark PipelineRun status = 'completed'
 ```
 
-## File Changes (greenfield — all files are new)
+## File Changes — Python project structure (all files are new)
+
+### Backend (`backend/`)
 
 | File | Action | Description |
 |------|--------|-------------|
-| **Apps** | | |
-| `apps/web/package.json` | Create | Next.js app dependencies |
-| `apps/web/next.config.ts` | Create | Next.js configuration |
-| `apps/web/src/app/layout.tsx` | Create | Root layout with auth check |
-| `apps/web/src/app/page.tsx` | Create | Landing/redirect page |
-| `apps/web/src/app/login/page.tsx` | Create | Login form |
-| `apps/web/src/app/register/page.tsx` | Create | Registration form |
-| `apps/web/src/app/dashboard/page.tsx` | Create | Main dashboard with stats |
-| `apps/web/src/app/dashboard/profile/page.tsx` | Create | Profile editor |
-| `apps/web/src/app/dashboard/portals/page.tsx` | Create | Portal config list + CRUD |
-| `apps/web/src/app/dashboard/portals/new/page.tsx` | Create | Add custom portal form |
-| `apps/web/src/app/dashboard/portals/[id]/test/page.tsx` | Create | Dry-run/test portal |
-| `apps/web/src/app/dashboard/applications/page.tsx` | Create | Application history |
-| `apps/web/src/app/dashboard/notifications/page.tsx` | Create | Notification history |
-| `apps/web/src/app/api/auth/login/route.ts` | Create | POST — authenticate, return JWT |
-| `apps/web/src/app/api/auth/register/route.ts` | Create | POST — create user |
-| `apps/web/src/app/api/auth/me/route.ts` | Create | GET — current user info |
-| `apps/web/src/app/api/portals/route.ts` | Create | GET list, POST create portal |
-| `apps/web/src/app/api/portals/[id]/route.ts` | Create | GET/PUT/DELETE portal config |
-| `apps/web/src/app/api/portals/[id]/test/route.ts` | Create | POST dry-run scrape |
-| `apps/web/src/app/api/profiles/route.ts` | Create | GET/PUT user profile |
-| `apps/web/src/app/api/applications/route.ts` | Create | GET list applications |
-| `apps/web/src/app/api/notifications/route.ts` | Create | GET notifications, PATCH read |
-| `apps/web/src/app/api/pipeline/trigger/route.ts` | Create | POST trigger manual pipeline run |
-| `apps/web/src/middleware.ts` | Create | Edge middleware — JWT verification, route guard |
-| `apps/web/src/lib/auth.ts` | Create | JWT sign/verify helpers, password hashing |
-| `apps/web/src/lib/api-client.ts` | Create | Typed fetch wrapper |
-| `apps/web/src/components/ui/*.tsx` | Create | Button, Card, Input, Table, Modal — base UI kit |
-| `apps/web/src/components/forms/PortalForm.tsx` | Create | Portal config form (selector fields) |
-| `apps/web/src/components/forms/ProfileForm.tsx` | Create | Profile editor form |
-| `apps/web/tailwind.config.ts` | Create | Tailwind CSS config |
-| `apps/web/postcss.config.mjs` | Create | PostCSS config |
-| `apps/worker/package.json` | Create | Worker dependencies (Playwright, prisma client) |
-| `apps/worker/src/index.ts` | Create | Poll loop entry point |
-| `apps/worker/src/pipeline.ts` | Create | Pipeline orchestrator |
-| `apps/worker/src/handlers/scrape.ts` | Create | Scrape step handler |
-| `apps/worker/src/handlers/match.ts` | Create | Match + score step handler |
-| `apps/worker/src/handlers/apply.ts` | Create | Auto-apply + cover letter step handler |
-| `apps/worker/src/handlers/notify.ts` | Create | Notification step handler |
-| **Packages** | | |
-| `packages/database/package.json` | Create | Prisma client package |
-| `packages/database/prisma/schema.prisma` | Create | Full schema (see below) |
-| `packages/database/src/index.ts` | Create | Re-export Prisma client singleton |
-| `packages/scraper/package.json` | Create | Scraper engine package |
-| `packages/scraper/src/index.ts` | Create | Public API |
-| `packages/scraper/src/engine.ts` | Create | Core: takes PortalConfig → Playwright page → structured jobs |
-| `packages/scraper/src/types.ts` | Create | Shared scraper types |
-| `packages/scraper/src/built-in/linkedin.ts` | Create | LinkedIn default selector config |
-| `packages/scraper/src/built-in/infojobs.ts` | Create | Infojobs default selector config |
-| `packages/scraper/src/built-in/computrabajo.ts` | Create | Computrabajo default selector config |
-| `packages/scraper/src/built-in/bumeran.ts` | Create | Bumeran default selector config |
-| `packages/scraper/src/selectors.ts` | Create | Registry of built-in selector configs |
-| `packages/matcher/package.json` | Create | Matcher engine package |
-| `packages/matcher/src/index.ts` | Create | Public API |
-| `packages/matcher/src/engine.ts` | Create | Core matching logic |
-| `packages/matcher/src/scoring.ts` | Create | Keyword/role/skill/location scoring |
-| `packages/matcher/src/types.ts` | Create | Shared matcher types |
-| `packages/cover-letter/package.json` | Create | Cover letter generator package |
-| `packages/cover-letter/src/index.ts` | Create | Public API |
-| `packages/cover-letter/src/generator.ts` | Create | LLM API interaction |
-| `packages/cover-letter/src/prompt.ts` | Create | Prompt templates (formal tone, multi-language) |
-| `packages/cover-letter/src/language.ts` | Create | Language detection for postings |
-| `packages/cover-letter/src/types.ts` | Create | Shared types |
-| `packages/notifier/package.json` | Create | Notifier package |
-| `packages/notifier/src/index.ts` | Create | Public API |
-| `packages/notifier/src/email.ts` | Create | SMTP/Resend email sender |
-| `packages/notifier/src/in-app.ts` | Create | In-app notification DB writer |
-| `packages/notifier/src/types.ts` | Create | Shared types |
-| **Root** | | |
-| `package.json` | Create | Root workspace config |
-| `turbo.json` | Create | Turborepo pipeline config |
-| `tsconfig.json` | Create | Base TypeScript config |
-| `.env.example` | Create | Required env vars template |
-| `.gitignore` | Create | Standard ignores |
-| `docker/docker-compose.yml` | Create | PostgreSQL + app services |
-| `docker/Dockerfile.web` | Create | Next.js production build |
-| `docker/Dockerfile.worker` | Create | Worker production build |
+| `backend/pyproject.toml` | Create | Project metadata, dependencies, tool config |
+| `backend/requirements.txt` | Create | Pinned deps for pip install |
+| `backend/alembic.ini` | Create | Alembic configuration (async) |
+| `backend/alembic/env.py` | Create | Async Alembic environment |
+| `backend/alembic/versions/20260619_184500_init_all_tables.py` | Create | Initial migration — all 8 tables |
+| `backend/app/__init__.py` | Create | Package marker |
+| `backend/app/main.py` | Create | FastAPI app factory, CORS, router registration |
+| `backend/app/config.py` | Create | pydantic-settings Settings class |
+| `backend/app/database.py` | Create | Async engine, session factory, Base, get_session dependency |
+| `backend/app/models/__init__.py` | Create | Re-export all models |
+| `backend/app/models/user.py` | Create | User model (id, email, password_hash, name, timestamps) |
+| `backend/app/models/profile.py` | Create | Profile model (tech_stack, target_roles, locations, etc.) |
+| `backend/app/models/portal.py` | Create | Portal model (selectors JSON, scrub config) |
+| `backend/app/models/job.py` | Create | StoredJob model (scraped postings) |
+| `backend/app/models/application.py` | Create | Application model (status, match_score, cover_letter) |
+| `backend/app/models/scrape_session.py` | Create | ScrapeSession model (per-portal scrape runs) |
+| `backend/app/models/pipeline_run.py` | Create | PipelineRun model (orchestration state) |
+| `backend/app/models/notification.py` | Create | Notification model (in-app + email) |
+| `backend/app/auth/__init__.py` | Create | Package marker |
+| `backend/app/auth/router.py` | Create | POST /register, POST /login, GET /me + JWT dependencies |
+| `backend/app/auth/schemas.py` | Create | Pydantic schemas: RegisterRequest, LoginRequest, TokenResponse, UserResponse |
+| `backend/app/auth/utils.py` | Create | JWT sign/verify (python-jose), password hashing (passlib bcrypt) |
+| `backend/app/profiles/__init__.py` | Create | Package marker |
+| `backend/app/profiles/router.py` | Create | GET/PUT /profiles — CRUD for user profile |
+| `backend/app/profiles/schemas.py` | Create | Pydantic schemas: ProfileResponse, ProfileUpdate |
+| `backend/app/portals/` | Create | Portal config CRUD routes (future) |
+| `backend/app/scrapers/` | Create | Scraper engine + built-in configs (future) |
+| `backend/app/matching/` | Create | Match scoring engine (future) |
+| `backend/app/cover_letter/` | Create | LLM cover letter generation (future) |
+| `backend/app/applicator/` | Create | Auto-application browser automation (future) |
+| `backend/app/notifications/` | Create | Email + in-app notification dispatch (future) |
 
-## Database Schema (Prisma)
+### Frontend (`frontend/`)
 
-```
-model User {
-  id             String   @id @default(uuid())
-  email          String   @unique
-  passwordHash   String
-  name           String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  profile        Profile?
-  portals        Portal[]
-  applications   Application[]
-  notifications  Notification[]
-  pipelineRuns   PipelineRun[]
-}
+| File | Action | Description |
+|------|--------|-------------|
+| `frontend/` | Create (empty) | React/Vite project — will be scaffolded in a later phase |
 
-model Profile {
-  id              String   @id @default(uuid())
-  userId          String   @unique
-  user            User     @relation(fields: [userId], references: [id])
-  targetRoles     String[] // JSON array of role titles
-  techStack       String[] // skills, languages, frameworks
-  experienceLevel String   // junior, mid, senior, lead
-  minSalary       Int?
-  maxSalary       Int?
-  locations       String[] // preferred cities/countries
-  remoteOnly      Boolean  @default(false)
-  languages       String[] // spoken languages
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-}
+### Root
 
-model Portal {
-  id                   String   @id @default(uuid())
-  userId               String?
-  user                 User?    @relation(fields: [userId], references: [id])
-  name                 String
-  baseUrl              String
-  jobListingUrl        String   // URL template, e.g. "https://example.com/jobs?q={query}&location={location}"
-  selectors            Json     // { jobCard, title, company, location, description, url, salary, postedDate, applyButton }
-  isBuiltin            Boolean  @default(false)
-  isEnabled            Boolean  @default(true)
-  isVerified           Boolean  @default(false) // passed dry-run
-  scrapeIntervalMin    Int      @default(60)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  storedJobs           StoredJob[]
-  scrapeSessions       ScrapeSession[]
-}
+| File | Action | Description |
+|------|--------|-------------|
+| `.gitignore` | Updated | Python ignores (__pycache__, .venv, *.pyc) + existing Node ignores |
+| `.env` | Updated | Python-style env vars (asyncpg URL, pydantic-settings compat) |
+| `.env.example` | Updated | Template env vars for Python stack |
 
-model StoredJob {
-  id               String   @id @default(uuid())
-  externalId       String?  // portal-specific job ID (nullable for custom portals)
-  portalId         String
-  portal           Portal   @relation(fields: [portalId], references: [id])
-  title            String
-  company          String
-  location         String?
-  description      String
-  url              String
-  salaryRange      String?
-  postedAt         DateTime?
-  scrapedAt        DateTime @default(now())
-  language         String   @default("en")
-  applications     Application[]
-  @@unique([portalId, externalId]) // prevent duplicate jobs
-}
+## Database Schema (SQLAlchemy)
 
-model Application {
-  id                   String   @id @default(uuid())
-  userId               String
-  user                 User     @relation(fields: [userId], references: [id])
-  storedJobId          String
-  storedJob            StoredJob @relation(fields: [storedJobId], references: [id])
-  pipelineRunId        String?
-  pipelineRun          PipelineRun? @relation(fields: [pipelineRunId], references: [id])
-  status               String   @default("pending") // pending, submitted, failed, skipped
-  matchScore           Float?
-  coverLetterGenerated Boolean  @default(false)
-  coverLetterText      String?
-  submittedAt          DateTime?
-  errorMessage         String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  notifications        Notification[]
-}
+All 8 tables match the existing Neon database schema (originally created via Prisma).
 
-model ScrapeSession {
-  id            String   @id @default(uuid())
-  portalId      String
-  portal        Portal   @relation(fields: [portalId], references: [id])
-  userId        String?
-  status        String   // running, completed, failed
-  jobsFound     Int      @default(0)
-  errorMessage  String?
-  startedAt     DateTime @default(now())
-  completedAt   DateTime?
-}
+### user
 
-model PipelineRun {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  portalId    String?
-  status      String   @default("pending") // pending, scraping, matching, applying, notifying, completed, failed
-  trigger     String   @default("manual") // manual, scheduled
-  steps       Json?    // { scrape: "done", match: "done", apply: "pending", notify: "pending" }
-  errorStep   String?
-  errorMsg    String?
-  createdAt   DateTime @default(now())
-  completedAt DateTime?
-  applications Application[]
-}
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default uuid4 |
+| email | VARCHAR(255) | UNIQUE, NOT NULL, indexed |
+| password_hash | VARCHAR(255) | NOT NULL |
+| name | VARCHAR(255) | nullable |
+| created_at | TIMESTAMPTZ | NOT NULL, default now() |
+| updated_at | TIMESTAMPTZ | NOT NULL, default now(), on update now() |
 
-model Notification {
-  id            String   @id @default(uuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id])
-  applicationId String?
-  application   Application? @relation(fields: [applicationId], references: [id])
-  type          String   // application_submitted, application_failed, portal_error, match_found
-  channel       String   @default("in_app") // in_app, email, both
-  title         String
-  body          String
-  isRead        Boolean  @default(false)
-  sentAt        DateTime @default(now())
-  readAt        DateTime?
-}
-```
+### profile
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default uuid4 |
+| user_id | UUID | UNIQUE, NOT NULL, FK → user(id) ON DELETE CASCADE |
+| target_roles | TEXT[] | NOT NULL, default [] |
+| tech_stack | TEXT[] | NOT NULL, default [] |
+| experience_level | VARCHAR(50) | NOT NULL |
+| min_salary | INTEGER | nullable |
+| max_salary | INTEGER | nullable |
+| locations | TEXT[] | NOT NULL, default [] |
+| remote_only | BOOLEAN | NOT NULL, default false |
+| languages | TEXT[] | NOT NULL, default [] |
+| is_active | BOOLEAN | NOT NULL, default true |
+| created_at | TIMESTAMPTZ | NOT NULL, default now() |
+| updated_at | TIMESTAMPTZ | NOT NULL, default now(), on update now() |
+
+### portal
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default uuid4 |
+| user_id | UUID | nullable, FK → user(id) ON DELETE SET NULL |
+| name | VARCHAR(255) | NOT NULL |
+| base_url | VARCHAR(500) | NOT NULL |
+| job_listing_url | VARCHAR(500) | NOT NULL |
+| selectors | JSONB | NOT NULL |
+| is_builtin | BOOLEAN | NOT NULL, default false |
+| is_enabled | BOOLEAN | NOT NULL, default true |
+| is_verified | BOOLEAN | NOT NULL, default false |
+| scrape_interval_min | INTEGER | NOT NULL, default 60 |
+| created_at | TIMESTAMPTZ | NOT NULL, default now() |
+| updated_at | TIMESTAMPTZ | NOT NULL, default now(), on update now() |
+
+### stored_job
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default uuid4 |
+| external_id | VARCHAR(255) | nullable |
+| portal_id | UUID | NOT NULL, FK → portal(id) ON DELETE CASCADE |
+| title | VARCHAR(500) | NOT NULL |
+| company | VARCHAR(255) | NOT NULL |
+| location | VARCHAR(255) | nullable |
+| description | TEXT | NOT NULL |
+| url | VARCHAR(1000) | NOT NULL |
+| salary_range | VARCHAR(255) | nullable |
+| posted_at | TIMESTAMPTZ | nullable |
+| scraped_at | TIMESTAMPTZ | NOT NULL, default now() |
+| language | VARCHAR(10) | NOT NULL, default 'en' |
+| **Unique** | (portal_id, external_id) | |
+
+### application
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default uuid4 |
+| user_id | UUID | NOT NULL, FK → user(id) ON DELETE CASCADE |
+| stored_job_id | UUID | NOT NULL, FK → stored_job(id) ON DELETE CASCADE |
+| pipeline_run_id | UUID | nullable, FK → pipeline_run(id) ON DELETE SET NULL |
+| status | VARCHAR(50) | NOT NULL, default 'pending' |
+| match_score | FLOAT | nullable |
+| cover_letter_generated | BOOLEAN | NOT NULL, default false |
+| cover_letter_text | TEXT | nullable |
+| submitted_at | TIMESTAMPTZ | nullable |
+| error_message | TEXT | nullable |
+| created_at | TIMESTAMPTZ | NOT NULL, default now() |
+| updated_at | TIMESTAMPTZ | NOT NULL, default now(), on update now() |
+
+### scrape_session
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default uuid4 |
+| portal_id | UUID | NOT NULL, FK → portal(id) ON DELETE CASCADE |
+| user_id | UUID | nullable |
+| status | VARCHAR(50) | NOT NULL |
+| jobs_found | INTEGER | NOT NULL, default 0 |
+| error_message | TEXT | nullable |
+| started_at | TIMESTAMPTZ | NOT NULL, default now() |
+| completed_at | TIMESTAMPTZ | nullable |
+
+### pipeline_run
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default uuid4 |
+| user_id | UUID | NOT NULL, FK → user(id) ON DELETE CASCADE |
+| portal_id | UUID | nullable |
+| status | VARCHAR(50) | NOT NULL, default 'pending' |
+| trigger | VARCHAR(50) | NOT NULL, default 'manual' |
+| steps | JSONB | nullable |
+| error_step | VARCHAR(50) | nullable |
+| error_msg | TEXT | nullable |
+| created_at | TIMESTAMPTZ | NOT NULL, default now() |
+| completed_at | TIMESTAMPTZ | nullable |
+
+### notification
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default uuid4 |
+| user_id | UUID | NOT NULL, FK → user(id) ON DELETE CASCADE |
+| application_id | UUID | nullable, FK → application(id) ON DELETE SET NULL |
+| type | VARCHAR(50) | NOT NULL |
+| channel | VARCHAR(20) | NOT NULL, default 'in_app' |
+| title | VARCHAR(255) | NOT NULL |
+| body | TEXT | NOT NULL |
+| is_read | BOOLEAN | NOT NULL, default false |
+| sent_at | TIMESTAMPTZ | NOT NULL, default now() |
+| read_at | TIMESTAMPTZ | nullable |
 
 ## Interfaces / Contracts
 
-### ScraperEngine
+### Auth dependencies
 
-```typescript
-// packages/scraper/src/types.ts
-interface PortalConfig {
-  id: string;
-  name: string;
-  baseUrl: string;
-  jobListingUrl: string;
-  selectors: PortalSelectors;
-}
+```python
+# Dependency: extracts Bearer token, decodes JWT, returns user_id
+async def get_current_user_id(token: str = Depends(get_token_from_header)) -> str
 
-interface PortalSelectors {
-  jobCard: string;         // CSS selector for each job card container
-  title: string;           // CSS selector or XPath relative to jobCard
-  company: string;
-  location: string;
-  description: string;
-  url: string;
-  salary: string | null;
-  postedDate: string | null;
-  applyButton: string | null; // selector for "apply" button on detail page
-}
-
-interface ScrapedJob {
-  externalId: string | null;
-  title: string;
-  company: string;
-  location: string | null;
-  description: string;
-  url: string;
-  salaryRange: string | null;
-  postedAt: Date | null;
-  language: string;
-}
+# Dependency: extracts raw Bearer token from Authorization header
+async def get_token_from_header(authorization: str = Header(...)) -> str
 ```
 
-### MatcherEngine
+### Auth schemas (Pydantic)
 
-```typescript
-// packages/matcher/src/types.ts
-interface MatchInput {
-  job: ScrapedJob;
-  profile: Profile; // Prisma Profile type
-}
-interface MatchResult {
-  score: number; // 0–100
-  factors: { keywordMatch: number; roleMatch: number; locationMatch: number; seniorityMatch: number };
-}
+```python
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: str | None = None
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    name: str | None = None
+    model_config = {"from_attributes": True}
 ```
 
-### CoverLetterGenerator
+### Profile schemas (Pydantic)
 
-```typescript
-// packages/cover-letter/src/types.ts
-interface CoverLetterInput {
-  jobTitle: string;
-  company: string;
-  jobDescription: string;
-  profile: { targetRoles: string[]; techStack: string[]; experienceLevel: string };
-  language: string; // target language for the letter
-}
+```python
+class ProfileResponse(BaseModel):
+    id: str
+    user_id: str
+    target_roles: list[str]
+    tech_stack: list[str]
+    experience_level: str
+    min_salary: int | None = None
+    max_salary: int | None = None
+    locations: list[str]
+    remote_only: bool
+    languages: list[str]
+    is_active: bool
+    model_config = {"from_attributes": True}
+
+class ProfileUpdate(BaseModel):
+    target_roles: list[str] | None = None
+    tech_stack: list[str] | None = None
+    experience_level: str | None = None
+    ...
 ```
 
-### Notifier
+### ScraperEngine (future)
 
-```typescript
-// packages/notifier/src/types.ts
-interface NotificationInput {
-  userId: string;
-  applicationId?: string;
-  type: 'application_submitted' | 'application_failed' | 'portal_error' | 'match_found';
-  title: string;
-  body: string;
-  channels: ('in_app' | 'email')[];
-}
+```python
+# backend/app/scrapers/
+@dataclass
+class PortalSelectors:
+    job_card: str       # CSS/XPath for each job card container
+    title: str
+    company: str
+    location: str
+    description: str
+    url: str
+    salary: str | None
+    posted_date: str | None
+    apply_button: str | None
+
+@dataclass
+class ScrapedJob:
+    external_id: str | None
+    title: str
+    company: str
+    location: str | None
+    description: str
+    url: str
+    salary_range: str | None
+    posted_at: datetime | None
+    language: str
+```
+
+### MatcherEngine (future)
+
+```python
+# backend/app/matching/
+@dataclass
+class MatchResult:
+    score: float  # 0–100
+    factors: dict  # {"keyword_match": float, "role_match": float, ...}
+```
+
+### CoverLetterGenerator (future)
+
+```python
+# backend/app/cover_letter/
+@dataclass
+class CoverLetterInput:
+    job_title: str
+    company: str
+    job_description: str
+    profile: dict  # target_roles, tech_stack, experience_level
+    language: str  # target language for the letter
+```
+
+### Notifier (future)
+
+```python
+# backend/app/notifications/
+@dataclass
+class NotificationInput:
+    user_id: str
+    application_id: str | None
+    type: str  # application_submitted | application_failed | portal_error | match_found
+    title: str
+    body: str
+    channels: list[str]  # ["in_app"] | ["email"] | ["in_app", "email"]
 ```
 
 ## Testing Strategy
 
 | Layer | What to Test | Approach |
 |-------|-------------|----------|
-| Unit | Scorer functions, prompt building, selector parsing | Vitest — pure function tests, no external deps |
-| Unit | JWT auth helpers, password hashing | Vitest — token sign/verify, hash comparison |
-| Integration | Scraper engine against Playwright browser | Vitest + Playwright — launch headless, parse known HTML fixtures |
-| Integration | Prisma CRUD operations | `testcontainers` with PostgreSQL or SQLite test DB |
-| Integration | LLM cover letter generation | Mock API responses (nock/interceptors) — test prompt construction, not the API |
-| E2E | Full pipeline: scrape → match → apply → notify | Playwright — mock portal HTML, intercept LLM calls, assert DB rows and notification creation |
-| E2E | User registration, login, portal config, dashboard | Playwright — browser-level flows against the Next.js app |
-| Dry-run test | User-configured portal selectors | Scraper engine in test mode: returns parsed jobs without persisting; validates selector coverage |
+| Unit | Scoring functions, prompt building, selector parsing | pytest — pure function tests, no external deps |
+| Unit | JWT auth helpers, password hashing | pytest — token sign/verify, hash comparison |
+| Integration | Scraper engine against Playwright browser | pytest + Playwright — launch headless, parse known HTML fixtures |
+| Integration | SQLAlchemy CRUD operations | pytest + test database (asyncpg via testcontainers or SQLite aiosqlite) |
+| Integration | LLM cover letter generation | Mock API responses (httpx mock / respx) — test prompt construction, not the API |
+| E2E | Full pipeline: scrape → match → apply → notify | pytest + Playwright — mock portal HTML, intercept LLM calls, assert DB rows |
+| E2E | User registration, login, portal config, dashboard | pytest + httpx AsyncClient (FastAPI TestClient) — endpoint-level flows |
+| Dry-run test | User-configured portal selectors | Scraper engine in test mode: returns parsed jobs without persisting |
 
 ## Migration / Rollout
 
-1. **Phase 0 — Scaffold**: Initialize monorepo, Turborepo config, shared TypeScript, Prisma schema. Run `prisma migrate dev` to create DB.
-2. **Phase 1 — Auth + Profile**: Next.js app shell, JWT auth API, login/register pages, profile editor.
-3. **Phase 2 — Portal Config + Scraper**: `packages/scraper` with engine + 4 built-in configs, portal CRUD API + UI, dry-run test mode.
-4. **Phase 3 — Worker Pipeline**: `apps/worker` poll loop, scrape → match handlers, pipeline runs table updates. Manual trigger from dashboard.
-5. **Phase 4 — Auto-Apply + Cover Letter**: Apply handler with Playwright form filling, LLM cover letter generation via `packages/cover-letter`.
-6. **Phase 5 — Notifications**: Email + in-app notification system, notification history UI.
-7. **Phase 6 — Polish**: Scheduled scraping (cron via node-schedule or OS cron), error handling, rate limiting, anti-detection delays.
+1. **Phase 0 — Scaffold (current)**: Delete Node/TS artifacts, create Python project structure, SQLAlchemy models + Alembic migration, FastAPI skeleton with config, auth module, profiles module.
+2. **Phase 1 — Portal Config + Scraper**: `backend/app/portals/` + `backend/app/scrapers/` with engine + 4 built-in configs, dry-run test mode, portal CRUD API.
+3. **Phase 2 — Worker Pipeline**: Celery setup with Redis, scrape → match → apply → notify tasks, PipelineRun state machine.
+4. **Phase 3 — Frontend**: React/Vite scaffold, dashboard UI, auth login/register pages, profile editor.
+5. **Phase 4 — Polish**: Scheduled scraping (Celery beat), error handling, rate limiting, anti-detection delays.
+6. **Phase 5 — Tests**: Full test suite (unit, integration, E2E).
 
 ## Open Questions
 
-- [ ] Email provider preference: SMTP (nodemailer) vs transactional API (Resend/SendGrid)? Resend is simpler but requires API key; SMTP works with any provider.
-- [ ] Should built-in portal selectors be seeded in DB (via migration) or loaded from code? Code-loading means updates via package releases; DB means users get updates through migrations.
-- [ ] Anti-detection strategy for Playwright: stealth plugin vs manual randomization? `playwright-extra` with `puppeteer-extra-plugin-stealth` equivalent exists but adds complexity.
-- [ ] Match threshold: configurable per user or global? Proposal implies per-user but should confirm default value (e.g., 60/100).
+- [ ] Email provider: SMTP (aiosmtplib) vs transactional API (Resend/SendGrid)? aiosmtplib is async-native; Resend has best DX but needs API key.
+- [ ] Built-in portal selectors: seed via Alembic migration (data migration) or load from code? Code-loading means updates via package releases; DB seeding means users get updates through migrations.
+- [ ] Anti-detection strategy for Playwright Python: `playwright-stealth` pip package vs manual randomization? Stealth plugin has fewer updates in Python ecosystem.
+- [ ] Match threshold: configurable per user or global default (e.g., 60/100)?
