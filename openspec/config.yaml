@@ -4,10 +4,10 @@ context: |
   Project: search_jobs
   Description: Automatic job search app — scrapes job portals, matches profile, auto-applies, generates AI cover letters
   Repository: https://github.com/oskar089/search_jobs
-  Stack: Not yet initialized — empty repository
-  Architecture: Not yet established
-  Testing: No test infrastructure detected
-  Style: Not yet established
+  Stack: Python 3.12+ / FastAPI / SQLAlchemy async / Alembic / Celery + Redis / Playwright
+  Architecture: Python backend (FastAPI) + decoupled React/Vite frontend
+  Testing: pytest + pytest-asyncio (not yet configured)
+  Style: ruff (lint + format), mypy (type checking)
 
 testing:
   strict_tdd: false
