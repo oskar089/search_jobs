@@ -7,9 +7,9 @@ import { LayoutDashboard, User, Globe, Briefcase, Bell, LogOut } from "lucide-re
 const navItems = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard, disabled: false },
   { label: "Profile", path: "/profile", icon: User, disabled: false },
-  { label: "Portals", path: "/portals", icon: Globe, disabled: true },
-  { label: "Applications", path: "/applications", icon: Briefcase, disabled: true },
-  { label: "Notifications", path: "/notifications", icon: Bell, disabled: true },
+  { label: "Portals", path: "/portals", icon: Globe, disabled: false },
+  { label: "Applications", path: "/applications", icon: Briefcase, disabled: false },
+  { label: "Notifications", path: "/notifications", icon: Bell, disabled: false },
 ];
 
 export function Layout() {

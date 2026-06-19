@@ -71,8 +71,8 @@ Decision needed before apply: Yes (resolved → stacked-to-main)
 - [x] 6.2 Login/register pages
 - [x] 6.3 Dashboard with application history
 - [x] 6.4 Profile editor
-- [ ] 6.5 Portal config CRUD UI
-- [ ] 6.6 Notification history UI
+- [x] 6.5 Portal config CRUD UI
+- [x] 6.6 Notification history UI
 
 ## Phase 7: Tests (future)
 
