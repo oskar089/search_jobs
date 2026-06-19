@@ -67,10 +67,10 @@ Decision needed before apply: Yes (resolved → stacked-to-main)
 
 ## Phase 6: Frontend (future)
 
-- [ ] 6.1 Scaffold React/Vite project in `frontend/`
-- [ ] 6.2 Login/register pages
-- [ ] 6.3 Dashboard with application history
-- [ ] 6.4 Profile editor
+- [x] 6.1 Scaffold React/Vite project in `frontend/`
+- [x] 6.2 Login/register pages
+- [x] 6.3 Dashboard with application history
+- [x] 6.4 Profile editor
 - [ ] 6.5 Portal config CRUD UI
 - [ ] 6.6 Notification history UI
 
