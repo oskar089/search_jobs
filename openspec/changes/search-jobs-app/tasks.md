@@ -45,16 +45,16 @@ Decision needed before apply: Yes (resolved → stacked-to-main)
 - [x] 3.2 `backend/app/profiles/router.py` — GET /api/profiles, PUT /api/profiles (upsert)
 - [x] 3.3 Register profiles router in `backend/app/main.py`
 
-## Phase 4: Portal Config + Scraper (future)
+## Phase 4: Portal Config + Scraper
 
-- [ ] 4.1 `backend/app/portals/router.py` — CRUD for portal configs
-- [ ] 4.2 `backend/app/portals/schemas.py` — PortalCreate, PortalResponse, PortalSelectors schemas
-- [ ] 4.3 `backend/app/scrapers/engine.py` — Core scraping engine with Playwright
-- [ ] 4.4 `backend/app/scrapers/builtin/linkedin.py` — LinkedIn selector config
+- [x] 4.1 `backend/app/portals/router.py` — CRUD for portal configs
+- [x] 4.2 `backend/app/portals/schemas.py` — PortalCreate, PortalResponse, PortalSelectors schemas
+- [x] 4.3 `backend/app/scrapers/engine.py` — Core scraping engine with Playwright
+- [x] 4.4 `backend/app/scrapers/builtin/linkedin.py` — LinkedIn selector config
 - [ ] 4.5 `backend/app/scrapers/builtin/infojobs.py` — Infojobs selector config
 - [ ] 4.6 `backend/app/scrapers/builtin/computrabajo.py` — Computrabajo selector config
 - [ ] 4.7 `backend/app/scrapers/builtin/bumeran.py` — Bumeran selector config
-- [ ] 4.8 Dry-run test mode for portal selectors
+- [x] 4.8 Dry-run test mode for portal selectors
 
 ## Phase 5: Worker Pipeline (future)
 
