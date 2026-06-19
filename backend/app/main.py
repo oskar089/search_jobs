@@ -5,6 +5,7 @@ from app.config import settings
 from app.auth.router import router as auth_router
 from app.portals.router import router as portals_router
 from app.profiles.router import router as profiles_router
+from app.notifications.router import router as notifications_router
 
 app = FastAPI(
     title=settings.app_name,
@@ -25,6 +26,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(portals_router, prefix=settings.api_prefix)
 app.include_router(profiles_router, prefix=settings.api_prefix)
+app.include_router(notifications_router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

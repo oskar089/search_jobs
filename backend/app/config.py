@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4"
     llm_api_url: str = "https://api.openai.com/v1/chat/completions"
 
+    # Matching
+    match_threshold: int = 75
+
     # SMTP
     smtp_host: str = ""
     smtp_port: int = 587
