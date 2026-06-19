@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String        @id @default(uuid())
+  email          String        @unique
+  passwordHash   String
+  name           String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  profile        Profile?
+  portals        Portal[]
+  applications   Application[]
+  notifications  Notification[]
+  pipelineRuns   PipelineRun[]
+}
+
+model Profile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  targetRoles     String[]
+  techStack       String[]
+  experienceLevel String
+  minSalary       Int?
+  maxSalary       Int?
+  locations       String[]
+  remoteOnly      Boolean  @default(false)
+  languages       String[]
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Portal {
+  id                String          @id @default(uuid())
+  userId            String?
+  user              User?           @relation(fields: [userId], references: [id])
+  name              String
+  baseUrl           String
+  jobListingUrl     String
+  selectors         Json
+  isBuiltin         Boolean         @default(false)
+  isEnabled         Boolean         @default(true)
+  isVerified        Boolean         @default(false)
+  scrapeIntervalMin Int             @default(60)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  storedJobs        StoredJob[]
+  scrapeSessions    ScrapeSession[]
+}
+
+model StoredJob {
+  id            String        @id @default(uuid())
+  externalId    String?
+  portalId      String
+  portal        Portal        @relation(fields: [portalId], references: [id])
+  title         String
+  company       String
+  location      String?
+  description   String
+  url           String
+  salaryRange   String?
+  postedAt      DateTime?
+  scrapedAt     DateTime      @default(now())
+  language      String        @default("en")
+  applications  Application[]
+
+  @@unique([portalId, externalId])
+}
+
+model Application {
+  id                   String        @id @default(uuid())
+  userId               String
+  user                 User          @relation(fields: [userId], references: [id])
+  storedJobId          String
+  storedJob            StoredJob     @relation(fields: [storedJobId], references: [id])
+  pipelineRunId        String?
+  pipelineRun          PipelineRun?  @relation(fields: [pipelineRunId], references: [id])
+  status               String        @default("pending")
+  matchScore           Float?
+  coverLetterGenerated Boolean       @default(false)
+  coverLetterText      String?
+  submittedAt          DateTime?
+  errorMessage         String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  notifications        Notification[]
+}
+
+model ScrapeSession {
+  id            String     @id @default(uuid())
+  portalId      String
+  portal        Portal     @relation(fields: [portalId], references: [id])
+  userId        String?
+  status        String
+  jobsFound     Int        @default(0)
+  errorMessage  String?
+  startedAt     DateTime   @default(now())
+  completedAt   DateTime?
+}
+
+model PipelineRun {
+  id            String        @id @default(uuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  portalId      String?
+  status        String        @default("pending")
+  trigger       String        @default("manual")
+  steps         Json?
+  errorStep     String?
+  errorMsg      String?
+  createdAt     DateTime      @default(now())
+  completedAt   DateTime?
+  applications  Application[]
+}
+
+model Notification {
+  id            String       @id @default(uuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id])
+  applicationId String?
+  application   Application? @relation(fields: [applicationId], references: [id])
+  type          String
+  channel       String       @default("in_app")
+  title         String
+  body          String
+  isRead        Boolean      @default(false)
+  sentAt        DateTime     @default(now())
+  readAt        DateTime?
+}
