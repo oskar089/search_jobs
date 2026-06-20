@@ -44,7 +44,7 @@ async def upsert_profile(
         # Create new profile — require at least experience_level
         if "experience_level" not in update_data:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="experience_level is required when creating a profile",
             )
         profile = Profile(user_id=user_id, **update_data)

@@ -105,7 +105,10 @@ async def _match_applications(
             # Always log score (even below threshold) for analytics
             logger.info(
                 "Match: job=%s score=%.1f threshold=%.1f above=%s",
-                job.id, score, threshold, score >= threshold,
+                job.id,
+                score,
+                threshold,
+                score >= threshold,
             )
 
         pipeline.steps = {
@@ -121,6 +124,8 @@ async def _match_applications(
 
     logger.info(
         "Matched %d jobs — %d applications created (threshold=%.1f)",
-        len(scored), created, threshold,
+        len(scored),
+        created,
+        threshold,
     )
     return {"status": "completed", "jobs_scored": len(scored), "applications_created": created}

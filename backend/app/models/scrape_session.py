@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, DateTime, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,7 +16,9 @@ class ScrapeSession(Base):
         primary_key=True,
         default=lambda: str(uuid.uuid4()),
     )
-    portal_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    portal_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("portal.id"), nullable=False
+    )
     user_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), nullable=True)
 
     status: Mapped[str] = mapped_column(String(50), nullable=False)  # running, completed, failed

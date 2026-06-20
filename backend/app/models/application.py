@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, Float, DateTime, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,9 +16,13 @@ class Application(Base):
         primary_key=True,
         default=lambda: str(uuid.uuid4()),
     )
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    stored_job_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    pipeline_run_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), nullable=True)
+    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("user.id"), nullable=False)
+    stored_job_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("stored_job.id"), nullable=False
+    )
+    pipeline_run_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("pipeline_run.id"), nullable=True
+    )
 
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
     match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -37,8 +41,12 @@ class Application(Base):
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="applications")  # type: ignore[name-defined]  # noqa: F821
     stored_job: Mapped["StoredJob"] = relationship("StoredJob", back_populates="applications")  # type: ignore[name-defined]  # noqa: F821
-    pipeline_run: Mapped["PipelineRun | None"] = relationship("PipelineRun", back_populates="applications")  # type: ignore[name-defined]  # noqa: F821
-    notifications: Mapped[list["Notification"]] = relationship("Notification", back_populates="application")  # type: ignore[name-defined]  # noqa: F821
+    pipeline_run: Mapped["PipelineRun | None"] = relationship(
+        "PipelineRun", back_populates="applications"
+    )  # type: ignore[name-defined]  # noqa: F821
+    notifications: Mapped[list["Notification"]] = relationship(
+        "Notification", back_populates="application"
+    )  # type: ignore[name-defined]  # noqa: F821
 
     def __repr__(self) -> str:
         return f"<Application {self.id} status={self.status}>"

@@ -29,9 +29,8 @@ async def _apply_to_job(
     user_id: str,
     pipeline_run_id: str,
 ) -> dict:
-    from app.cover_letter.generator import CoverLetterGenerator, CoverLetterInput
     from app.applicator.engine import AutoApplicator
-    from app.config import settings
+    from app.cover_letter.generator import CoverLetterGenerator, CoverLetterInput
 
     # --- Load application + related data ---
     async with async_session_factory() as session:
@@ -124,6 +123,7 @@ async def _apply_to_job(
 
         # Update pipeline steps
         from app.models import PipelineRun
+
         pipeline = await session.get(PipelineRun, pipeline_run_id)
         if pipeline:
             step_key = f"apply:{application_id}"
@@ -159,6 +159,7 @@ async def _fail_application(
             app_row.error_message = error
         if pipeline_run_id:
             from app.models import PipelineRun
+
             pipeline = await session.get(PipelineRun, pipeline_run_id)
             if pipeline:
                 step_key = f"apply:{application_id}"

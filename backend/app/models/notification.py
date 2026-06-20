@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, DateTime, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,8 +16,10 @@ class Notification(Base):
         primary_key=True,
         default=lambda: str(uuid.uuid4()),
     )
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    application_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), nullable=True)
+    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("user.id"), nullable=False)
+    application_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("application.id"), nullable=True
+    )
 
     type: Mapped[str] = mapped_column(
         String(50), nullable=False
@@ -36,7 +38,9 @@ class Notification(Base):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="notifications")  # type: ignore[name-defined]  # noqa: F821
-    application: Mapped["Application | None"] = relationship("Application", back_populates="notifications")  # type: ignore[name-defined]  # noqa: F821
+    application: Mapped["Application | None"] = relationship(
+        "Application", back_populates="notifications"
+    )  # type: ignore[name-defined]  # noqa: F821
 
     def __repr__(self) -> str:
         return f"<Notification {self.title} is_read={self.is_read}>"

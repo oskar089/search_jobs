@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, Integer, DateTime, func
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -17,7 +17,7 @@ class Profile(Base):
         default=lambda: str(uuid.uuid4()),
     )
     user_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), unique=True, nullable=False
+        UUID(as_uuid=False), ForeignKey("user.id"), unique=True, nullable=False
     )
     target_roles: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     tech_stack: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)

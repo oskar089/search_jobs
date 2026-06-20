@@ -9,7 +9,8 @@ from app.auth.router import get_current_user_id
 from app.database import get_session
 from app.models import Portal
 from app.portals.schemas import PortalCreate, PortalResponse, PortalUpdate
-from app.scrapers.engine import PortalSelectors as EngineSelectors, ScraperEngine
+from app.scrapers.engine import PortalSelectors as EngineSelectors
+from app.scrapers.engine import ScraperEngine
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +53,14 @@ async def list_portals(
 ):
     """List the current user's portals and all built-in portals."""
     result = await session.execute(
-        select(Portal).where(
+        select(Portal)
+        .where(
             or_(
                 Portal.user_id == user_id,
                 Portal.user_id.is_(None),
             ),
-        ).order_by(Portal.name),
+        )
+        .order_by(Portal.name),
     )
     return result.scalars().all()
 
@@ -189,7 +192,7 @@ async def dry_run_portal(
 
     if not jobs:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Dry-run returned zero results. Check your selectors or the portal URL.",
         )
 

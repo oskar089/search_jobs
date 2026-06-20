@@ -1,6 +1,6 @@
 # Skill Registry — search_jobs
 
-Generated: 2026-06-19
+Generated: 2026-06-20
 Scope: user-level skills (project has no skills directory)
 
 ## User Skills (C:\Users\Familia Becerra\.config\opencode\skills\)

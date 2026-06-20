@@ -86,10 +86,14 @@ class AutoApplicator:
 
             # --- Fill form fields ---
             await self._type_with_delay(
-                page, 'input[name="name"], input[id*="name"]', name,
+                page,
+                'input[name="name"], input[id*="name"]',
+                name,
             )
             await self._type_with_delay(
-                page, 'input[type="email"], input[name="email"]', email,
+                page,
+                'input[type="email"], input[name="email"]',
+                email,
             )
             await self._type_with_delay(
                 page,

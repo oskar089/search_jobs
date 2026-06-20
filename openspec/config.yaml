@@ -4,24 +4,31 @@ context: |
   Project: search_jobs
   Description: Automatic job search app — scrapes job portals, matches profile, auto-applies, generates AI cover letters
   Repository: https://github.com/oskar089/search_jobs
-  Stack: Python 3.12+ / FastAPI / SQLAlchemy async / Alembic / Celery + Redis / Playwright
-  Architecture: Python backend (FastAPI) + decoupled React/Vite frontend
-  Testing: pytest + pytest-asyncio (not yet configured)
+  Stack: Python 3.12+ / FastAPI / SQLAlchemy async / Alembic / Celery + Redis / Playwright / BeautifulSoup
+  Frontend: React 19 / Vite / Tailwind CSS 4 / TypeScript (decoupled)
+  Architecture: Python backend (FastAPI) + decoupled React/Vite frontend — REST API
+  Testing: pytest + pytest-asyncio (configured); playwright for E2E
   Style: ruff (lint + format), mypy (type checking)
+  Backend modules: auth, profiles, portals, scrapers, matching, cover_letter, applicator, notifications, tasks — 8 SQLAlchemy models
+  Database: Neon PostgreSQL via asyncpg
 
 testing:
-  strict_tdd: false
-  reason: No test runner, config, or dependency files found. Project is in initial empty state.
-  runner: null
+  strict_tdd: true
+  reason: |
+    pytest configured in pyproject.toml (asyncio_mode=auto, testpaths=tests).
+    pytest-cov, ruff, mypy in dev dependencies. No tests/ directory yet — but runner
+    and toolchain are fully configured. Strict TDD enforced from this point forward.
+  runner: pytest
+  runner_args: "-v --tb=short"
   layers:
-    unit: { available: false, tool: null }
-    integration: { available: false, tool: null }
-    e2e: { available: false, tool: null }
-  coverage: { available: false, command: null }
+    unit: { available: true, tool: pytest }
+    integration: { available: true, tool: pytest + httpx (AsyncClient) }
+    e2e: { available: true, tool: playwright (Python binding) }
+  coverage: { available: true, command: "pytest --cov=app --cov-report=term-missing" }
   quality:
-    linter: { available: false, command: null }
-    type_checker: { available: false, command: null }
-    formatter: { available: false, command: null }
+    linter: { available: true, command: "ruff check" }
+    type_checker: { available: true, command: "mypy app" }
+    formatter: { available: true, command: "ruff format" }
 
 rules:
   proposal:
@@ -37,11 +44,11 @@ rules:
     - Keep tasks completable in one session
   apply:
     - Follow existing code patterns
-    tdd: false
-    test_command: ""
+    tdd: true
+    test_command: "pytest -v --tb=short"
   verify:
-    test_command: ""
-    build_command: ""
-    coverage_threshold: 0
+    test_command: "pytest -v --tb=short --cov=app --cov-report=term-missing"
+    build_command: "ruff check app && mypy app && ruff format --check app"
+    coverage_threshold: 80
   archive:
     - Warn before merging destructive deltas

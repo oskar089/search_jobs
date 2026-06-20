@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, func, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -12,9 +12,7 @@ class StoredJob(Base):
     """Stores scraped job postings."""
 
     __tablename__ = "stored_job"
-    __table_args__ = (
-        UniqueConstraint("portal_id", "external_id", name="uq_portal_external_job"),
-    )
+    __table_args__ = (UniqueConstraint("portal_id", "external_id", name="uq_portal_external_job"),)
 
     id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
@@ -22,7 +20,9 @@ class StoredJob(Base):
         default=lambda: str(uuid.uuid4()),
     )
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    portal_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    portal_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("portal.id"), nullable=False
+    )
 
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     company: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -38,7 +38,9 @@ class StoredJob(Base):
 
     # Relationships
     portal: Mapped["Portal"] = relationship("Portal", back_populates="stored_jobs")  # type: ignore[name-defined]  # noqa: F821
-    applications: Mapped[list["Application"]] = relationship("Application", back_populates="stored_job")  # type: ignore[name-defined]  # noqa: F821
+    applications: Mapped[list["Application"]] = relationship(
+        "Application", back_populates="stored_job"
+    )  # type: ignore[name-defined]  # noqa: F821
 
     def __repr__(self) -> str:
         return f"<StoredJob {self.title} @ {self.company}>"

@@ -76,9 +76,9 @@ Decision needed before apply: Yes (resolved → stacked-to-main)
 
 ## Phase 7: Tests (future)
 
-- [ ] 7.1 Unit: auth utils — hash comparison, token sign/verify
-- [ ] 7.2 Unit: profile — CRUD logic
-- [ ] 7.3 Integration: auth routes — register, login, token expiry
-- [ ] 7.4 Integration: profile routes — CRUD, validation, unauthenticated rejection
-- [ ] 7.5 E2E: register → login → create/update profile → verify JWT guard
-- [ ] 7.6 Integration: scraper engine against Playwright (HTML fixtures)
+- [x] 7.1 Unit: auth utils — hash comparison, token sign/verify
+- [x] 7.2 Unit: profile — CRUD logic
+- [x] 7.3 Integration: auth routes — register, login, token expiry
+- [x] 7.4 Integration: profile routes — CRUD, validation, unauthenticated rejection
+- [x] 7.5 E2E: register → login → create/update profile → verify JWT guard
+- [x] 7.6 Integration: scraper engine against Playwright (HTML fixtures)
