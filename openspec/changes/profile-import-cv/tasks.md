@@ -59,11 +59,11 @@ Chain strategy: feature-branch-chain
 
 ## Phase 4: Frontend — Spanish UI + Integration
 
-- [ ] 4.1 Add `ImportedProfile`, `CVParseResult`, `SkillItem`, `EducationItem`, `ExperienceItem` types to `frontend/src/types/index.ts`
-- [ ] 4.2 Add `importLinkedin`, `importInfojobs`, `previewSave`, `uploadCv`, `downloadCv`, `deleteCv` methods to `frontend/src/lib/profiles.ts`
-- [ ] 4.3 Add "Importar perfil" section to Profile.tsx: provider selector (LinkedIn/Infojobs), URL input, import trigger, editable preview modal with all fields
+- [x] 4.1 Add `ImportedProfile`, `CVParseResult`, `SkillItem`, `EducationItem`, `ExperienceItem` types to `frontend/src/types/index.ts`
+- [x] 4.2 Add `importLinkedin`, `importInfojobs`, `previewSave`, `uploadCv`, `downloadCv`, `deleteCv` methods to `frontend/src/lib/profiles.ts`
+- [x] 4.3 Add "Importar perfil" section to Profile.tsx: provider selector (LinkedIn/Infojobs), URL input, import trigger, editable preview modal with all fields
 - [ ] 4.4 Add "Subir CV" section to Profile.tsx: file upload with progress indicator, parsed preview modal, download/delete actions
-- [ ] 4.5 Wire preview-save flow: user edits preview → click "Guardar" → merge with existing profile → update UI
+- [x] 4.5 Wire preview-save flow: user edits preview → click "Guardar" → merge with existing profile → update UI
 - [ ] 4.6 **E2E**: Playwright test for import flow — fill URL, click import, see preview modal
 
 ## Verification Checklist
