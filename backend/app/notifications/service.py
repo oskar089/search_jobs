@@ -93,7 +93,7 @@ class NotificationService:
         company: str,
     ) -> None:
         """Send in-app + email notification for a successful submission."""
-        title = f"Application Submitted"
+        title = "Application Submitted"
         body = f"Your application for {job_title} at {company} has been submitted."
 
         await self.create_in_app(
@@ -119,7 +119,7 @@ class NotificationService:
         error: str,
     ) -> None:
         """Send in-app + email notification for a failed submission."""
-        title = f"Application Failed"
+        title = "Application Failed"
         body = f"Your application for {job_title} at {company} failed: {error}"
 
         await self.create_in_app(

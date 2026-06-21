@@ -1,7 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
 # Import / CV item schemas

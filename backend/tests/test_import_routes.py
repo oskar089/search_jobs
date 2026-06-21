@@ -11,12 +11,10 @@ Covers:
 
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from httpx import AsyncClient
 
 from app.models import CurriculumVitae, Profile

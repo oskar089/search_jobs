@@ -1,4 +1,4 @@
-1."""Unit tests for CVParser.
+"""Unit tests for CVParser.
 
 Tests text extraction via pdfplumber and structured parsing via
 OpenAI function calling.  The OpenAI client is mocked so no API
@@ -8,12 +8,12 @@ calls are made during tests.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.profiles.cv_parser import CVParser
-from app.profiles.schemas import CVParseResult, ImportedProfile, SkillItem
+from app.profiles.schemas import CVParseResult
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

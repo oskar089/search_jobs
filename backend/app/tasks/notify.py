@@ -3,8 +3,6 @@
 import asyncio
 import logging
 
-from sqlalchemy import select
-
 from app.celery_app import celery_app
 from app.database import async_session_factory
 from app.models import Application, StoredJob, User
@@ -62,7 +60,11 @@ async def _notify_result(
                 error=app_row.error_message or "Unknown error",
             )
         else:
-            logger.info("Skipping notification for app %s — status=%s", application_id, app_row.status)
+            logger.info(
+                "Skipping notification for app %s — status=%s",
+                application_id,
+                app_row.status,
+            )
             return {"status": "skipped", "reason": f"Unhandled status: {app_row.status}"}
     except Exception as exc:
         logger.error("Notification failed for app %s: %s", application_id, exc)

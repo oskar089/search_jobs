@@ -29,9 +29,8 @@ async def _apply_to_job(
     user_id: str,
     pipeline_run_id: str,
 ) -> dict:
-    from app.cover_letter.generator import CoverLetterGenerator, CoverLetterInput
     from app.applicator.engine import AutoApplicator
-    from app.config import settings
+    from app.cover_letter.generator import CoverLetterGenerator, CoverLetterInput
 
     # --- Load application + related data ---
     async with async_session_factory() as session:
