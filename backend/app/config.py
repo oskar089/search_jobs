@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # Database
     database_url: str = (
         "postgresql+asyncpg://neondb_owner:npg_jM9hvZynakK0@"
-        "ep-odd-block-ad1a5lon.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
+        "ep-odd-block-ad1a5lon.c-2.us-east-1.aws.neon.tech/neondb?ssl=require"
     )
 
     # Auth
@@ -37,6 +37,13 @@ class Settings(BaseSettings):
 
     # Matching
     match_threshold: int = 75
+
+    # LinkedIn Import
+    linkedin_api_key: str = ""
+    linkedin_api_url: str = "https://api.scrapin.io"
+
+    # File Uploads
+    upload_dir: str = "uploads/cv"
 
     # SMTP
     smtp_host: str = ""
