@@ -148,6 +148,14 @@ export default function ProfilePage() {
     remote_only: false,
     languages: [],
     is_active: true,
+    headline: null,
+    summary: null,
+    skills: [],
+    education: [],
+    work_experience: [],
+    linkedin_url: null,
+    infojobs_url: null,
+    cv_file_url: null,
   });
 
   // Import section state

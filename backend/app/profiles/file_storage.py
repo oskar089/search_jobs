@@ -16,7 +16,6 @@ from fastapi.responses import FileResponse
 
 from app.profiles.schemas import CVResponse
 
-
 # ---------------------------------------------------------------------------
 # Abstract protocol (swap-friendly for S3)
 # ---------------------------------------------------------------------------

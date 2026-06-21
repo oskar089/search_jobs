@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, Integer, DateTime, func, JSON
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,7 +16,9 @@ class Portal(Base):
         primary_key=True,
         default=lambda: str(uuid.uuid4()),
     )
-    user_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), nullable=True)
+    user_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("user.id"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     base_url: Mapped[str] = mapped_column(String(500), nullable=False)
     job_listing_url: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -36,7 +38,9 @@ class Portal(Base):
     # Relationships
     user: Mapped["User | None"] = relationship("User", back_populates="portals")  # type: ignore[name-defined]  # noqa: F821
     stored_jobs: Mapped[list["StoredJob"]] = relationship("StoredJob", back_populates="portal")  # type: ignore[name-defined]  # noqa: F821
-    scrape_sessions: Mapped[list["ScrapeSession"]] = relationship("ScrapeSession", back_populates="portal")  # type: ignore[name-defined]  # noqa: F821
+    scrape_sessions: Mapped[list["ScrapeSession"]] = relationship(  # noqa: F821
+        "ScrapeSession", back_populates="portal"
+    )  # type: ignore[name-defined]
 
     def __repr__(self) -> str:
         return f"<Portal {self.name}>"
