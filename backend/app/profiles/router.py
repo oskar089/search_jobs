@@ -14,8 +14,8 @@ from app.profiles.linkedin_importer import LinkedInImporter
 from app.profiles.merge_service import MergeService
 from app.profiles.schemas import (
     CVParseResult,
-    ImportUrlRequest,
     ImportedProfile,
+    ImportUrlRequest,
     MergeRequest,
     ProfileResponse,
     ProfileUpdate,

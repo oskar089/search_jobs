@@ -112,7 +112,7 @@ class LinkedInImporter:
             status = exc.response.status_code
             if status == 429:
                 raise ValueError(
-                    f"LinkedIn API rate limit exceeded. Try again later.",
+                    "LinkedIn API rate limit exceeded. Try again later.",
                 ) from exc
             raise ValueError(
                 f"LinkedIn API error: HTTP {status}. Could not fetch profile.",

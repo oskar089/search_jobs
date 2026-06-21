@@ -208,7 +208,6 @@ class InfojobsProfileScraper(ProfileScraper):
                 ]
 
                 # --- Location (optional) ---
-                location = await self._get_text_or_none(page, "location")
 
                 # --- Work experience ---
                 work_experience = await self._extract_experience(page)

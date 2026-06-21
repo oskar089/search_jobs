@@ -8,8 +8,6 @@ Validates the fill-empty merge behavior:
 
 from __future__ import annotations
 
-import pytest
-
 from app.profiles.merge_service import MergeService
 from app.profiles.schemas import (
     EducationItem,
