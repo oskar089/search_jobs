@@ -1,3 +1,4 @@
+from app.models.curriculum_vitae import CurriculumVitae
 from app.models.user import User
 from app.models.profile import Profile
 from app.models.portal import Portal
@@ -8,6 +9,7 @@ from app.models.pipeline_run import PipelineRun
 from app.models.notification import Notification
 
 __all__ = [
+    "CurriculumVitae",
     "User",
     "Profile",
     "Portal",
