@@ -32,6 +32,16 @@ export interface Profile {
   remote_only: boolean;
   languages: string[];
   is_active: boolean;
+
+  // Profile import / CV fields
+  headline: string | null;
+  summary: string | null;
+  skills: SkillItem[];
+  education: EducationItem[];
+  work_experience: ExperienceItem[];
+  linkedin_url: string | null;
+  infojobs_url: string | null;
+  cv_file_url: string | null;
 }
 
 export interface ProfileUpdate {
@@ -44,6 +54,16 @@ export interface ProfileUpdate {
   remote_only?: boolean;
   languages?: string[];
   is_active?: boolean;
+
+  // Profile import / CV fields
+  headline?: string | null;
+  summary?: string | null;
+  skills?: SkillItem[];
+  education?: EducationItem[];
+  work_experience?: ExperienceItem[];
+  linkedin_url?: string | null;
+  infojobs_url?: string | null;
+  cv_file_url?: string | null;
 }
 
 export interface PortalSelectors {
@@ -105,4 +125,53 @@ export interface Application {
   cover_letter_generated: boolean;
   submitted_at: string | null;
   created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Profile import / CV types
+// ---------------------------------------------------------------------------
+
+export interface SkillItem {
+  name: string;
+  level: string; // beginner | intermediate | advanced | expert
+}
+
+export interface EducationItem {
+  institution: string;
+  degree: string;
+  field: string | null;
+  start_date: string;
+  end_date: string | null;
+  description: string | null;
+}
+
+export interface ExperienceItem {
+  company: string;
+  role: string;
+  start_date: string;
+  end_date: string | null;
+  description: string | null;
+  current: boolean;
+}
+
+export interface ImportedProfile {
+  headline: string | null;
+  summary: string | null;
+  skills: SkillItem[];
+  education: EducationItem[];
+  work_experience: ExperienceItem[];
+  linkedin_url: string | null;
+  infojobs_url: string | null;
+}
+
+export interface CVParseResult {
+  id: string;
+  file_name: string;
+  file_size: number;
+  parsed_data: ImportedProfile;
+}
+
+export interface MergeRequest {
+  preview_data: ImportedProfile;
+  strategy?: string;
 }
