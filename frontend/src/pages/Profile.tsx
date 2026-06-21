@@ -1,14 +1,14 @@
 import { useState, useEffect, type KeyboardEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Linkedin, Globe, Plus, Trash2 } from "lucide-react";
+import { Linkedin, Globe, Plus, Trash2, Upload } from "lucide-react";
 import { cn } from "../lib/utils";
-import { getMyProfile, updateMyProfile, importLinkedin, importInfojobs, previewSave } from "../lib/profiles";
+import { getMyProfile, updateMyProfile, importLinkedin, importInfojobs, previewSave, uploadCv, downloadCv, deleteCv } from "../lib/profiles";
 import { Input } from "../components/ui/Input";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
-import type { Profile, ImportedProfile, SkillItem, EducationItem, ExperienceItem } from "../types";
+import type { Profile, ImportedProfile, SkillItem, EducationItem, ExperienceItem, CVParseResult } from "../types";
 
 const EXPERIENCE_LEVELS = ["junior", "mid", "senior", "lead"];
 
@@ -159,6 +159,13 @@ export default function ProfilePage() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  // CV section state
+  const [cvFile, setCvFile] = useState<File | null>(null);
+  const [cvUploading, setCvUploading] = useState(false);
+  const [cvError, setCvError] = useState("");
+  const [cvResult, setCvResult] = useState<CVParseResult | null>(null);
+  const [previewMode, setPreviewMode] = useState<"import" | "cv">("import");
+
   const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: ["my-profile"],
     queryFn: getMyProfile,
@@ -222,6 +229,7 @@ export default function ProfilePage() {
         ? await importLinkedin(importUrl.trim())
         : await importInfojobs(importUrl.trim());
       setEditData(data);
+      setPreviewMode("import");
       setIsPreviewOpen(true);
       setSaveError("");
     } catch (err: unknown) {
@@ -236,6 +244,88 @@ export default function ProfilePage() {
     if (!editData) return;
     setSaveError("");
     previewMutation.mutate({ preview_data: editData, strategy: "fill-empty" });
+  };
+
+  // ---------------------------------------------------------------------------
+  // CV upload handlers
+  // ---------------------------------------------------------------------------
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleCvFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate PDF
+    if (file.type && file.type !== "application/pdf") {
+      setCvError("Solo se aceptan archivos PDF");
+      setCvFile(null);
+      return;
+    }
+
+    // Validate max size (10 MB)
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setCvError("El archivo excede el tamaño máximo de 10 MB");
+      setCvFile(null);
+      return;
+    }
+
+    setCvError("");
+    setCvFile(file);
+  };
+
+  const handleCvUpload = async () => {
+    if (!cvFile) return;
+    setCvUploading(true);
+    setCvError("");
+    try {
+      const result = await uploadCv(cvFile);
+      setCvResult(result);
+      setCvFile(null);
+      setEditData(result.parsed_data);
+      setPreviewMode("cv");
+      setIsPreviewOpen(true);
+      queryClient.invalidateQueries({ queryKey: ["my-profile"] });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error al subir el CV";
+      setCvError(message);
+    } finally {
+      setCvUploading(false);
+    }
+  };
+
+  const handleDownloadCv = async (cvId: string) => {
+    try {
+      const blob = await downloadCv(cvId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = cvResult?.file_name || "cv.pdf";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error al descargar el CV";
+      setCvError(message);
+    }
+  };
+
+  const handleDeleteCv = async (cvId: string) => {
+    if (!confirm("¿Estás seguro de eliminar este CV?")) return;
+    try {
+      await deleteCv(cvId);
+      setCvResult(null);
+      queryClient.invalidateQueries({ queryKey: ["my-profile"] });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error al eliminar el CV";
+      setCvError(message);
+    }
   };
 
   // Generic updater for top-level edit fields
@@ -446,6 +536,85 @@ export default function ProfilePage() {
           </div>
         </Card>
 
+        {/* Subir CV section */}
+        <Card>
+          <h2 className="text-lg font-semibold text-white mb-4">Subir CV</h2>
+          <div className="space-y-4">
+            {/* Drop zone */}
+            <div
+              className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-600 p-8 cursor-pointer hover:border-blue-500 transition-colors"
+              onClick={() => document.getElementById("cv-file-input")?.click()}
+            >
+              <Upload className="h-8 w-8 text-slate-400 mb-2" />
+              <p className="text-sm text-slate-400 text-center">
+                Arrastra un PDF aquí o haz clic para seleccionar
+              </p>
+              <input
+                id="cv-file-input"
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={handleCvFileSelect}
+              />
+            </div>
+
+            {/* CV error */}
+            {cvError && (
+              <p className="text-xs text-red-400">{cvError}</p>
+            )}
+
+            {/* Selected file info + upload button */}
+            {cvFile && !cvUploading && (
+              <div className="flex items-center justify-between rounded-lg bg-slate-700/50 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-white truncate">{cvFile.name}</p>
+                  <p className="text-xs text-slate-400">{formatFileSize(cvFile.size)}</p>
+                </div>
+                <Button type="button" variant="primary" onClick={handleCvUpload}>
+                  Subir
+                </Button>
+              </div>
+            )}
+
+            {/* Uploading state */}
+            {cvUploading && (
+              <div className="flex items-center justify-center py-4">
+                <Button type="button" variant="primary" isLoading disabled>
+                  Subiendo...
+                </Button>
+              </div>
+            )}
+
+            {/* CV list */}
+            {cvResult && (
+              <div className="rounded-lg border border-slate-700 divide-y divide-slate-700">
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white truncate">{cvResult.file_name}</p>
+                    <p className="text-xs text-slate-400">{formatFileSize(cvResult.file_size)}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => handleDownloadCv(cvResult.id)}
+                    >
+                      Descargar
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => handleDeleteCv(cvResult.id)}
+                    >
+                      Eliminar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+
         {/* Importar perfil section */}
         <Card>
           <h2 className="text-lg font-semibold text-white mb-4">Importar perfil</h2>
@@ -521,7 +690,7 @@ export default function ProfilePage() {
       </form>
 
       {/* Preview modal */}
-      <Modal isOpen={isPreviewOpen} onClose={() => setIsPreviewOpen(false)} title="Vista previa — Importar perfil">
+      <Modal isOpen={isPreviewOpen} onClose={() => setIsPreviewOpen(false)} title={previewMode === "cv" ? "Vista previa — CV parseado" : "Vista previa — Importar perfil"}>
         {editData && (
           <div className="space-y-6">
             {/* Headline */}
@@ -703,17 +872,25 @@ export default function ProfilePage() {
 
             {/* Modal footer buttons */}
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
-              <Button type="button" variant="secondary" onClick={() => setIsPreviewOpen(false)}>
-                Cancelar
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                isLoading={previewMutation.isPending}
-                onClick={handlePreviewSave}
-              >
-                Guardar
-              </Button>
+              {previewMode === "cv" ? (
+                <Button type="button" variant="secondary" onClick={() => setIsPreviewOpen(false)}>
+                  Cerrar
+                </Button>
+              ) : (
+                <>
+                  <Button type="button" variant="secondary" onClick={() => setIsPreviewOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    isLoading={previewMutation.isPending}
+                    onClick={handlePreviewSave}
+                  >
+                    Guardar
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         )}
