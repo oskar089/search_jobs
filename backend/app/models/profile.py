@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, Integer, DateTime, func
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -17,7 +17,7 @@ class Profile(Base):
         default=lambda: str(uuid.uuid4()),
     )
     user_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), unique=True, nullable=False
+        UUID(as_uuid=False), ForeignKey("user.id"), unique=True, nullable=False
     )
     target_roles: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     tech_stack: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
@@ -28,6 +28,16 @@ class Profile(Base):
     remote_only: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     languages: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Profile import / CV fields (added by profile-import-cv change)
+    headline: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    summary: Mapped[str | None] = mapped_column(String, nullable=True)
+    skills: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    education: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    work_experience: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    linkedin_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    infojobs_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    cv_file_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -9,7 +9,8 @@ from app.auth.router import get_current_user_id
 from app.database import get_session
 from app.models import Portal
 from app.portals.schemas import PortalCreate, PortalResponse, PortalUpdate
-from app.scrapers.engine import PortalSelectors as EngineSelectors, ScraperEngine
+from app.scrapers.engine import PortalSelectors as EngineSelectors
+from app.scrapers.engine import ScraperEngine
 
 logger = logging.getLogger(__name__)
 
