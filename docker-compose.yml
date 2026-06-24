@@ -1,0 +1,225 @@
+# =============================================================================
+#  Search Jobs — Docker Compose
+#  Backend: FastAPI + Celery | Frontend: React/Vite | DB: PostgreSQL 16
+# =============================================================================
+#
+#  Quick start:
+#    docker compose up -d
+#
+#  With Celery Beat (periodic tasks):
+#    docker compose --profile beat up -d
+#
+#  Stop everything:
+#    docker compose down -v        # also removes volumes
+#    docker compose down           # keeps volumes
+#
+#  Environment variables can be set via .env file in project root.
+#==============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL 16 — primary database
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: searchjobs
+      POSTGRES_PASSWORD: searchjobs
+      POSTGRES_DB: searchjobs
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U searchjobs -d searchjobs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # --------------------------------------------------------------------------
+  # Redis 7 — Celery broker & result backend
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # --------------------------------------------------------------------------
+  # Backend — FastAPI (Uvicorn)
+  # --------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Override connection strings for Docker networking
+      DATABASE_URL: "postgresql+asyncpg://searchjobs:searchjobs@postgres:5432/searchjobs"
+      REDIS_URL: "redis://redis:6379/0"
+
+      # App config (override via .env)
+      APP_NAME: "${APP_NAME:-Search Jobs}"
+      APP_ENV: "${APP_ENV:-development}"
+      DEBUG: "${DEBUG:-true}"
+      API_PREFIX: "${API_PREFIX:-/api}"
+      APP_URL: "${APP_URL:-http://localhost:5173}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173}"
+
+      # Auth
+      JWT_SECRET: "${JWT_SECRET:-change-me-to-a-random-secret}"
+      JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
+      JWT_EXPIRES_IN_MINUTES: "${JWT_EXPIRES_IN_MINUTES:-10080}"
+
+      # LLM / OpenAI
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_MODEL: "${LLM_MODEL:-gpt-4}"
+      LLM_API_URL: "${LLM_API_URL:-https://api.openai.com/v1/chat/completions}"
+
+      # Resume matching
+      MATCH_THRESHOLD: "${MATCH_THRESHOLD:-75}"
+
+      # LinkedIn scraper
+      LINKEDIN_API_KEY: "${LINKEDIN_API_KEY:-}"
+      LINKEDIN_API_URL: "${LINKEDIN_API_URL:-https://api.scrapin.io}"
+      LINKEDIN_EMAIL: "${LINKEDIN_EMAIL:-}"
+      LINKEDIN_PASSWORD: "${LINKEDIN_PASSWORD:-}"
+
+      # File uploads
+      UPLOAD_DIR: "/app/uploads/cv"
+
+      # SMTP (email notifications)
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-noreply@searchjobs.app}"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  # --------------------------------------------------------------------------
+  # Celery Worker — async task processing (scraping, matching, notifications)
+  # --------------------------------------------------------------------------
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://searchjobs:searchjobs@postgres:5432/searchjobs"
+      REDIS_URL: "redis://redis:6379/0"
+
+      APP_NAME: "${APP_NAME:-Search Jobs}"
+      APP_ENV: "${APP_ENV:-development}"
+      DEBUG: "${DEBUG:-false}"
+      API_PREFIX: "${API_PREFIX:-/api}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173}"
+
+      JWT_SECRET: "${JWT_SECRET:-change-me-to-a-random-secret}"
+      JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
+      JWT_EXPIRES_IN_MINUTES: "${JWT_EXPIRES_IN_MINUTES:-10080}"
+
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_MODEL: "${LLM_MODEL:-gpt-4}"
+      LLM_API_URL: "${LLM_API_URL:-https://api.openai.com/v1/chat/completions}"
+
+      MATCH_THRESHOLD: "${MATCH_THRESHOLD:-75}"
+
+      LINKEDIN_API_KEY: "${LINKEDIN_API_KEY:-}"
+      LINKEDIN_API_URL: "${LINKEDIN_API_URL:-https://api.scrapin.io}"
+      LINKEDIN_EMAIL: "${LINKEDIN_EMAIL:-}"
+      LINKEDIN_PASSWORD: "${LINKEDIN_PASSWORD:-}"
+
+      UPLOAD_DIR: "/app/uploads/cv"
+
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-noreply@searchjobs.app}"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # prefork pool uses multiple CPU cores — best for Linux Docker hosts
+    command: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "--pool=prefork"]
+
+  # --------------------------------------------------------------------------
+  # Celery Beat — periodic task scheduler (opt-in via --profile beat)
+  # --------------------------------------------------------------------------
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    profiles:
+      - beat
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://searchjobs:searchjobs@postgres:5432/searchjobs"
+      REDIS_URL: "redis://redis:6379/0"
+
+      APP_NAME: "${APP_NAME:-Search Jobs}"
+      APP_ENV: "${APP_ENV:-development}"
+      DEBUG: "${DEBUG:-false}"
+
+      JWT_SECRET: "${JWT_SECRET:-change-me-to-a-random-secret}"
+
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_MODEL: "${LLM_MODEL:-gpt-4}"
+
+      MATCH_THRESHOLD: "${MATCH_THRESHOLD:-75}"
+
+      UPLOAD_DIR: "/app/uploads/cv"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "app.celery_app", "beat", "--loglevel=info"]
+
+  # --------------------------------------------------------------------------
+  # Frontend — React / Vite (production build served by nginx)
+  # --------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+# ----------------------------------------------------------------------------
+#  Named volumes
+# ----------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  uploads:
+    driver: local
