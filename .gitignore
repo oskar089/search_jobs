@@ -46,3 +46,6 @@ uploads/
 # Cache
 .pytest_cache/
 .atl/.skill-registry.cache.json
+
+# LinkedIn auth session (cookies — do not commit)
+linkedin_auth.json

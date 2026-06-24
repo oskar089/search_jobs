@@ -8,7 +8,9 @@ job search result listings.
 from __future__ import annotations
 
 import logging
+import os
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.profiles.schemas import ImportedProfile, SkillItem
@@ -23,6 +25,42 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _DEFAULT_SKILL_LEVEL = "advanced"
+
+# Path for persistent LinkedIn auth state (saved after first successful login)
+_LINKEDIN_AUTH_FILE = Path(__file__).parents[2] / "linkedin_auth.json"
+
+# Anti-headless stealth script that runs on every page in the context.
+# LinkedIn and other sites check these properties to detect automation.
+_STEALTH_SCRIPT = """
+// Hide Playwright automation痕迹
+Object.defineProperty(navigator, 'webdriver', {
+    get: () => undefined,
+});
+// Restore plugins (headless has 0 by default)
+Object.defineProperty(navigator, 'plugins', {
+    get: () => [1, 2, 3, 4, 5],
+});
+// Restore languages
+Object.defineProperty(navigator, 'languages', {
+    get: () => ['es-AR', 'en-US', 'en'],
+});
+// Chromium headless check (chrome might not exist on all pages)
+if (typeof chrome !== 'undefined') {
+    Object.defineProperty(chrome, 'runtime', {
+        get: () => ({
+            connect: () => ({}),
+            sendMessage: () => ({}),
+        }),
+    });
+}
+// WebGL vendor — headless returns "Google Inc. (ANGLE)"
+const getParameter = WebGLRenderingContext.prototype.getParameter;
+WebGLRenderingContext.prototype.getParameter = function(param) {
+    if (param === 37445) return 'Intel Inc.';
+    if (param === 37446) return 'Intel Iris OpenGL Engine';
+    return getParameter(param);
+};
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -270,16 +308,32 @@ class LinkedInProfileScraper(ProfileScraper):
         self,
         email: str | None = None,
         password: str | None = None,
+        auth_file: str | None = None,
     ) -> None:
         self._email = email or ""
         self._password = password or ""
+        self._auth_file = Path(auth_file) if auth_file else _LINKEDIN_AUTH_FILE
 
     async def _scrape_profile(self, url: str) -> ImportedProfile:
         """Extract profile data using Playwright, with optional login."""
         from playwright.async_api import async_playwright
 
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-web-security",
+                ],
+            )
+
+            # --- Try loading persistent auth state ---
+            storage_state = None
+            if self._auth_file.exists():
+                logger.info("Loading persistent LinkedIn auth from %s", self._auth_file)
+                storage_state = str(self._auth_file)
+
             context = await browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -287,13 +341,20 @@ class LinkedInProfileScraper(ProfileScraper):
                     "Chrome/125.0.0.0 Safari/537.36"
                 ),
                 viewport={"width": 1280, "height": 720},
+                storage_state=storage_state,
             )
+
+            # Inject anti-headless stealth script on every page
+            await context.add_init_script(_STEALTH_SCRIPT)
+
             page = await context.new_page()
 
             try:
-                # --- Optional login (helps with public profile access) ---
-                if self._email and self._password:
+                # --- Optional login (fresh, not needed if auth_file works) ---
+                login_was_performed = False
+                if self._email and self._password and not storage_state:
                     await self._login(page)
+                    login_was_performed = True
 
                 # --- Navigate to profile ---
                 await page.goto(url, timeout=30000, wait_until="domcontentloaded")
@@ -331,6 +392,13 @@ class LinkedInProfileScraper(ProfileScraper):
                     linkedin_url=url,
                 )
             finally:
+                # If we just logged in successfully, save the session for future runs
+                if login_was_performed and self._auth_file:
+                    try:
+                        await context.storage_state(path=str(self._auth_file))
+                        logger.info("Saved LinkedIn auth state to %s", self._auth_file)
+                    except Exception as exc:
+                        logger.warning("Could not save LinkedIn auth state: %s", exc)
                 await context.close()
                 await browser.close()
 
