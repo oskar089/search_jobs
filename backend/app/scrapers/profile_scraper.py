@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from app.profiles.schemas import ImportedProfile, SkillItem
+
+if TYPE_CHECKING:
+    from playwright.async_api import Page as PwPage
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +79,7 @@ class ProfileScraper(ABC):
     # Extraction helpers
     # ------------------------------------------------------------------
 
-    async def _get_text(self, page: object, field: str) -> str | None:
+    async def _get_text(self, page: "PwPage", field: str) -> str | None:
         """Extract inner text of the first matching selector, or ``None``."""
         sel = self.profile_selectors.get(field)
         if not sel:
@@ -85,11 +89,11 @@ class ProfileScraper(ABC):
             return None
         return (await el.inner_text()).strip() or None
 
-    async def _get_text_or_none(self, page: object, field: str) -> str | None:
+    async def _get_text_or_none(self, page: "PwPage", field: str) -> str | None:
         """Like ``_get_text`` but always returns str | None (never empty)."""
         return await self._get_text(page, field)
 
-    async def _get_all_text(self, page: object, field: str) -> list[str]:
+    async def _get_all_text(self, page: "PwPage", field: str) -> list[str]:
         """Extract inner text from all elements matching the selector."""
         sel = self.profile_selectors.get(field)
         if not sel:
@@ -102,7 +106,7 @@ class ProfileScraper(ABC):
                 results.append(text)
         return results
 
-    async def _extract_experience(self, page: object) -> list:
+    async def _extract_experience(self, page: "PwPage") -> list:
         """Extract work experience cards from the profile page.
 
         Override ``profile_selectors`` keys ``experience_card``,
@@ -222,3 +226,130 @@ class InfojobsProfileScraper(ProfileScraper):
             finally:
                 await context.close()
                 await browser.close()
+
+
+# ---------------------------------------------------------------------------
+# LinkedIn implementation (free, Playwright-based)
+# ---------------------------------------------------------------------------
+
+
+class LinkedInProfileScraper(ProfileScraper):
+    """Scraper for LinkedIn public profile pages using Playwright.
+
+    NOTE: LinkedIn requires login to view most profiles and employs
+    aggressive anti-bot measures. This scraper works BEST when:
+      - The target profile is set to "public" in LinkedIn's privacy settings
+      - You are running from a residential IP (no datacenter VPN)
+      - LinkedIn hasn't changed their DOM recently
+
+    If the scraper returns empty or hits a login wall, the profile
+    likely requires authentication. Consider:
+      1. Setting the ``LINKEDIN_EMAIL`` and ``LINKEDIN_PASSWORD`` env vars
+         to auto-login before scraping.
+      2. Using the Scrapin.io API (paid) if you need reliable LinkedIn data.
+
+    CSS selectors target LinkedIn's public profile page as of 2025.
+    LinkedIn changes their DOM frequently — verify selectors if scraping
+    returns empty results.
+    """
+
+    profile_selectors: dict[str, str] = {
+        # Main fields (public profile)
+        "headline": "div.text-body-medium",
+        "summary": "section.summary div.inline-show-more-text",
+        "skills": "span.pill.pill--expandable",
+        "location": "span.text-body-small.inline t-black--light",
+        # Experience cards
+        "experience_card": "li.profile-section-card",
+        "experience_title": "h3.profile-section-card__title",
+        "experience_company": "p.profile-section-card__subtitle",
+        "experience_description": "div.inline-show-more-text",
+    }
+
+    def __init__(
+        self,
+        email: str | None = None,
+        password: str | None = None,
+    ) -> None:
+        self._email = email or ""
+        self._password = password or ""
+
+    async def _scrape_profile(self, url: str) -> ImportedProfile:
+        """Extract profile data using Playwright, with optional login."""
+        from playwright.async_api import async_playwright
+
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/125.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 720},
+            )
+            page = await context.new_page()
+
+            try:
+                # --- Optional login (helps with public profile access) ---
+                if self._email and self._password:
+                    await self._login(page)
+
+                # --- Navigate to profile ---
+                await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+
+                # Wait a moment for dynamic content to render
+                await page.wait_for_timeout(3000)
+
+                # Check if we hit a login wall (redirected to/login)
+                current_url = page.url
+                if "/login" in current_url and "linkedin.com" in current_url:
+                    raise ValueError(
+                        "LinkedIn requires login to view this profile. "
+                        "Set LINKEDIN_EMAIL and LINKEDIN_PASSWORD in .env "
+                        "to auto-login, or use a different import method.",
+                    )
+
+                # --- Extract fields ---
+                headline = await self._get_text(page, "headline")
+                summary = await self._get_text(page, "summary")
+
+                raw_skills = await self._get_all_text(page, "skills")
+                skills = [
+                    SkillItem(name=s, level=_DEFAULT_SKILL_LEVEL)
+                    for s in raw_skills
+                    if s
+                ]
+
+                work_experience = await self._extract_experience(page)
+
+                return ImportedProfile(
+                    headline=headline,
+                    summary=summary,
+                    skills=skills,
+                    work_experience=work_experience,
+                    linkedin_url=url,
+                )
+            finally:
+                await context.close()
+                await browser.close()
+
+    async def _login(self, page: "PwPage") -> None:
+        """Log into LinkedIn if credentials are provided."""
+
+        await page.goto("https://www.linkedin.com/login", timeout=20000)
+        await page.wait_for_timeout(5000)
+
+        # LinkedIn uses dynamic Sdui-generated IDs. Find fields by type.
+        email_input = page.locator("input[type=email]").first
+        password_input = page.locator("input[type=password]").first
+        await email_input.wait_for(state="attached", timeout=15000)
+        await password_input.wait_for(state="attached", timeout=5000)
+
+        # LinkedIn uses Sdui with hidden fields — force=True bypasses visibility check
+        await email_input.fill(self._email, force=True)
+        await password_input.fill(self._password, force=True)
+        await password_input.press("Enter")
+
+        # Wait for navigation to complete
+        await page.wait_for_timeout(5000)

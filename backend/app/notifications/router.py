@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.router import get_current_user_id
 from app.database import get_session
-from app.models import Notification
+from app.models import Notification, Profile
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -63,3 +63,77 @@ async def mark_notification_read(
     notif.read_at = datetime.now(timezone.utc)
     await session.flush()
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Notification Preferences
+# ---------------------------------------------------------------------------
+
+DEFAULT_PREFERENCES: dict = {
+    "in_app": True,
+    "email": False,
+    "on_submit": True,
+    "on_fail": True,
+    "on_match": True,
+}
+
+
+class NotificationPreferencesResponse(BaseModel):
+    in_app: bool = True
+    email: bool = False
+    on_submit: bool = True
+    on_fail: bool = True
+    on_match: bool = True
+
+
+class NotificationPreferencesUpdate(BaseModel):
+    in_app: bool | None = None
+    email: bool | None = None
+    on_submit: bool | None = None
+    on_fail: bool | None = None
+    on_match: bool | None = None
+
+
+@router.get("/preferences", response_model=NotificationPreferencesResponse)
+async def get_notification_preferences(
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    """Return the current user's notification preferences from their profile."""
+    result = await session.execute(
+        select(Profile).where(Profile.user_id == user_id),
+    )
+    profile = result.scalar_one_or_none()
+    if profile is None or profile.notification_preferences is None:
+        return NotificationPreferencesResponse(**DEFAULT_PREFERENCES)
+    return NotificationPreferencesResponse(**profile.notification_preferences)
+
+
+@router.put("/preferences", response_model=NotificationPreferencesResponse)
+async def update_notification_preferences(
+    data: NotificationPreferencesUpdate,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    """Update the current user's notification preferences."""
+    result = await session.execute(
+        select(Profile).where(Profile.user_id == user_id),
+    )
+    profile = result.scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found",
+        )
+
+    current = profile.notification_preferences or {}
+    merged = {**DEFAULT_PREFERENCES, **current}
+
+    for field in ("in_app", "email", "on_submit", "on_fail", "on_match"):
+        value = getattr(data, field, None)
+        if value is not None:
+            merged[field] = value
+
+    profile.notification_preferences = merged
+    await session.flush()
+    return NotificationPreferencesResponse(**merged)

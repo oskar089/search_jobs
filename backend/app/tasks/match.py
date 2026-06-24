@@ -1,6 +1,5 @@
 """Celery task: match stored jobs against user profile and create applications."""
 
-import asyncio
 import logging
 import uuid
 
@@ -11,6 +10,7 @@ from app.config import settings
 from app.database import async_session_factory
 from app.matching.engine import MatcherEngine
 from app.models import Application, PipelineRun, Profile, StoredJob
+from app.tasks import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def match_applications(
     pipeline_run_id: str,
 ) -> dict:
     """Score scraped jobs against the user's profile and create applications."""
-    return asyncio.run(_match_applications(user_id, pipeline_run_id))
+    return run_async(_match_applications(user_id, pipeline_run_id))
 
 
 async def _match_applications(
@@ -54,6 +54,10 @@ async def _match_applications(
         profile_dict = {
             "target_roles": profile.target_roles,
             "tech_stack": profile.tech_stack,
+            "headline": profile.headline or "",
+            "summary": profile.summary or "",
+            "skills": profile.skills or [],
+            "work_experience": profile.work_experience or [],
             "experience_level": profile.experience_level,
             "locations": profile.locations,
             "remote_only": profile.remote_only,

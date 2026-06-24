@@ -1,14 +1,15 @@
 """Celery task: scrape a portal and persist StoredJob rows."""
 
-import asyncio
 import logging
 
 from sqlalchemy import select
 
 from app.celery_app import celery_app
+from app.config import settings
 from app.database import async_session_factory
 from app.models import PipelineRun, Portal, StoredJob
 from app.scrapers.engine import PortalSelectors, ScraperEngine
+from app.tasks import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def scrape_portal(
 
     Retries up to 3 times (60 s delay) on transient failures.
     """
-    return asyncio.run(_scrape_portal(portal_id, user_id, pipeline_run_id))
+    return run_async(_scrape_portal(portal_id, user_id, pipeline_run_id))
 
 
 async def _scrape_portal(
@@ -68,7 +69,12 @@ async def _scrape_portal(
 
     # --- Run the scraper (I/O-bound, no session held) ---
     try:
-        async with ScraperEngine(headless=True, timeout=30000) as engine:
+        async with ScraperEngine(
+            headless=True,
+            timeout=30000,
+            linkedin_email=settings.linkedin_email or None,
+            linkedin_password=settings.linkedin_password or None,
+        ) as engine:
             scraped = await engine.scrape(listing_url, selectors, max_results=50)
     except Exception as exc:
         logger.error("Scrape failed for portal %s: %s", portal_id, exc)

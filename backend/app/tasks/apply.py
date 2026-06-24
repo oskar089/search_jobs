@@ -1,6 +1,5 @@
 """Celery task: generate cover letter and auto-apply to a job."""
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -9,6 +8,7 @@ from sqlalchemy import select
 from app.celery_app import celery_app
 from app.database import async_session_factory
 from app.models import Application, StoredJob, User
+from app.tasks import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ def apply_to_job(
     pipeline_run_id: str,
 ) -> dict:
     """Generate a cover letter and submit the application via Playwright."""
-    return asyncio.run(_apply_to_job(application_id, user_id, pipeline_run_id))
+    return run_async(_apply_to_job(application_id, user_id, pipeline_run_id))
 
 
 async def _apply_to_job(

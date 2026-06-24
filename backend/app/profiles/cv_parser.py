@@ -1,7 +1,7 @@
-"""CV PDF parser — text extraction plus OpenAI-powered structured parsing.
+"""CV PDF parser — text extraction plus LLM-powered structured parsing.
 
-Uses ``pdfplumber`` for text extraction and the OpenAI chat completions
-API with function calling to extract structured profile fields from the
+Uses ``pdfplumber`` for text extraction and any OpenAI-compatible LLM
+(Ollama, OpenAI, etc.) to extract structured profile fields from the
 raw text.
 """
 
@@ -14,6 +14,7 @@ from pathlib import Path
 
 from openai import AsyncOpenAI
 
+from app.config import settings
 from app.profiles.schemas import CVParseResult, ImportedProfile
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-# System prompt for the OpenAI structured extraction.
+# System prompt for structured extraction (works with any LLM).
 _EXTRACTION_PROMPT = """You are a CV/resume parser. Extract structured data from the
 following CV text and return a JSON object with these fields:
 - headline (str or null): The professional headline / current title
@@ -35,7 +36,7 @@ following CV text and return a JSON object with these fields:
   "end_date": str or null, "description": str or null, "current": bool}}):
   Work experience entries.
 
-Return ONLY valid JSON, no markdown formatting, no explanation."""
+Return ONLY valid JSON, no markdown formatting, no explanation, no code blocks."""
 
 
 # ---------------------------------------------------------------------------
@@ -48,9 +49,9 @@ class CVParser:
 
     Two-step process:
     1. ``extract_text()`` — extract raw text via ``pdfplumber``.
-    2. ``parse_cv()`` — send text to OpenAI for structured extraction.
+    2. ``parse_cv()`` — send text to the configured LLM for structured extraction.
 
-    The OpenAI client is lazily initialised so that ``extract_text()``
+    The LLM client is lazily initialised so that ``extract_text()``
     can be called without an API key configured.
     """
 
@@ -103,7 +104,7 @@ class CVParser:
         return text
 
     async def parse_cv(self, file_path: str) -> CVParseResult:
-        """Extract text from a PDF and parse it via OpenAI.
+        """Extract text from a PDF and parse it via the configured LLM.
 
         Parameters
         ----------
@@ -120,7 +121,7 @@ class CVParser:
         FileNotFoundError
             If the file does not exist.
         ValueError
-            If the PDF is empty, has no extractable text, or OpenAI
+            If the PDF is empty, has no extractable text, or LLM
             parsing fails.
         """
         text = self.extract_text(file_path)
@@ -128,7 +129,7 @@ class CVParser:
             raise ValueError("No extractable text found in PDF.")
 
         path = Path(file_path)
-        parsed = await self._parse_with_openai(text)
+        parsed = await self._parse_with_llm(text)
 
         return CVParseResult(
             id=str(uuid.uuid4()),
@@ -141,42 +142,64 @@ class CVParser:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _parse_with_openai(self, text: str) -> ImportedProfile:
-        """Send extracted text to OpenAI and parse the structured response."""
+    async def _parse_with_llm(self, text: str) -> ImportedProfile:
+        """Send extracted text to the configured LLM and parse the structured response.
+
+        Falls back gracefully if ``response_format`` is not supported by the
+        backend (e.g. some Ollama models).
+        """
         client = self._get_client()
-        try:
-            completion = await client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": _EXTRACTION_PROMPT},
-                    {"role": "user", "content": text},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1,
-            )
-        except Exception as exc:
-            logger.exception("OpenAI CV parsing failed")
-            raise ValueError(
-                f"Failed to parse CV with OpenAI: {exc}",
-            ) from exc
 
-        raw = completion.choices[0].message.content
-        if not raw:
-            raise ValueError(
-                "OpenAI returned empty response during CV parsing.",
-            )
+        kwargs: dict = {
+            "model": settings.llm_model,
+            "messages": [
+                {"role": "system", "content": _EXTRACTION_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            "temperature": 0.1,
+        }
 
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"Failed to decode OpenAI response: {exc}",
-            ) from exc
+        # Some Ollama models don't support response_format — try with it,
+        # fall back without if it fails.
+        use_response_format = True
+        for attempt in range(2):
+            try:
+                if use_response_format:
+                    kwargs["response_format"] = {"type": "json_object"}
+                completion = await client.chat.completions.create(**kwargs)
+                raw = completion.choices[0].message.content
+                if not raw:
+                    raise ValueError("Empty response from LLM")
+                data = json.loads(raw)
+                return ImportedProfile(**data)
+            except (json.JSONDecodeError, Exception) as exc:
+                if attempt == 0 and use_response_format:
+                    logger.info(
+                        "LLM CV parsing with response_format failed (%s), "
+                        "retrying without it",
+                        exc,
+                    )
+                    use_response_format = False
+                    kwargs.pop("response_format", None)
+                    # Strengthen the prompt to force JSON-only output
+                    kwargs["messages"][0]["content"] = (
+                        _EXTRACTION_PROMPT
+                        + "\n\nCRITICAL: Respond with raw JSON only. "
+                        "No markdown, no code fences, no explanation."
+                    )
+                    continue
+                logger.exception("LLM CV parsing failed after retry")
+                raise ValueError(
+                    f"Failed to parse CV with LLM ({settings.llm_model}): {exc}",
+                ) from exc
 
-        return ImportedProfile(**data)
+        raise ValueError("Unexpected: LLM parsing loop exited without return")
 
     def _get_client(self) -> AsyncOpenAI:
-        """Return the OpenAI client, creating it lazily if needed."""
+        """Return the LLM client, creating it lazily if needed."""
         if self._client is None:
-            self._client = AsyncOpenAI()
+            self._client = AsyncOpenAI(
+                base_url=settings.llm_api_url,
+                api_key=settings.llm_api_key,
+            )
         return self._client

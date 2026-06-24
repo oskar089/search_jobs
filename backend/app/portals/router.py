@@ -51,7 +51,11 @@ async def list_portals(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ):
-    """List the current user's portals and all built-in portals."""
+    """List the current user's portals and all built-in portals, deduplicated by name.
+
+    If a user created their own portal with the same name as a built-in one,
+    the user's version wins (they may have customized selectors).
+    """
     result = await session.execute(
         select(Portal).where(
             or_(
@@ -60,7 +64,21 @@ async def list_portals(
             ),
         ).order_by(Portal.name),
     )
-    return result.scalars().all()
+    portals = result.scalars().all()
+
+    # Deduplicate by name: user-owned portals override built-in ones
+    seen: dict[str, Portal] = {}
+    for p in portals:
+        if p.name in seen:
+            # If the existing entry is built-in and this one is user-owned, swap
+            existing = seen[p.name]
+            if existing.is_builtin and not p.is_builtin:
+                seen[p.name] = p
+            # Otherwise keep the first one (both built-in or both user-owned)
+        else:
+            seen[p.name] = p
+
+    return list(seen.values())
 
 
 @router.post("", response_model=PortalResponse, status_code=status.HTTP_201_CREATED)

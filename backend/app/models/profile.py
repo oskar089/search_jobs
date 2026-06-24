@@ -39,6 +39,15 @@ class Profile(Base):
     infojobs_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     cv_file_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # Notification preferences
+    notification_preferences: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=lambda: {
+        "in_app": True,
+        "email": False,
+        "on_submit": True,
+        "on_fail": True,
+        "on_match": True,
+    })
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

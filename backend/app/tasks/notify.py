@@ -1,11 +1,11 @@
 """Celery task: send notifications for an application result."""
 
-import asyncio
 import logging
 
 from app.celery_app import celery_app
 from app.database import async_session_factory
 from app.models import Application, StoredJob, User
+from app.tasks import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ def notify_result(
     pipeline_run_id: str,
 ) -> dict:
     """Send in-app and email notifications for a completed application."""
-    return asyncio.run(_notify_result(application_id, pipeline_run_id))
+    return run_async(_notify_result(application_id, pipeline_run_id))
 
 
 async def _notify_result(

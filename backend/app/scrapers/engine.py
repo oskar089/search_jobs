@@ -44,9 +44,17 @@ class ScraperEngine:
             jobs = await engine.scrape(url, selectors, max_results=25)
     """
 
-    def __init__(self, headless: bool = True, timeout: int = 30000) -> None:
+    def __init__(
+        self,
+        headless: bool = True,
+        timeout: int = 30000,
+        linkedin_email: str | None = None,
+        linkedin_password: str | None = None,
+    ) -> None:
         self.headless = headless
         self.timeout = timeout
+        self._linkedin_email = linkedin_email
+        self._linkedin_password = linkedin_password
         self._browser = None
         self._playwright = None
 
@@ -101,6 +109,39 @@ class ScraperEngine:
         """
         return await self.scrape(url, selectors, max_results=10)
 
+    async def _login_linkedin(self, context: Any) -> None:
+        """Log into LinkedIn before scraping, if credentials are configured.
+
+        LinkedIn's login page uses dynamic Sdui-generated field IDs,
+        so we locate by input[type=email] and input[type=password].
+        """
+        if not self._linkedin_email or not self._linkedin_password:
+            return
+        page = await context.new_page()
+        try:
+            logger.info("Logging into LinkedIn...")
+            await page.goto("https://www.linkedin.com/login", timeout=self.timeout)
+            await page.wait_for_timeout(5000)
+
+            email_input = page.locator("input[type=email]").first
+            password_input = page.locator("input[type=password]").first
+            await email_input.wait_for(state="attached", timeout=15000)
+            await password_input.wait_for(state="attached", timeout=5000)
+
+            # LinkedIn uses Sdui with hidden fields — force=True bypasses visibility check
+            await email_input.fill(self._linkedin_email, force=True)
+            await password_input.fill(self._linkedin_password, force=True)
+            await password_input.press("Enter")
+            await page.wait_for_timeout(5000)
+
+            current = page.url
+            if "/login" in current and "linkedin.com" in current:
+                logger.warning("LinkedIn login failed — still on login page")
+            else:
+                logger.info("LinkedIn login successful")
+        finally:
+            await page.close()
+
     async def _scrape_page(
         self,
         url: str,
@@ -116,6 +157,11 @@ class ScraperEngine:
                 "Chrome/125.0.0.0 Safari/537.36"
             ),
         )
+
+        # LinkedIn login (if configured)
+        if "linkedin.com" in url:
+            await self._login_linkedin(context)
+
         page = await context.new_page()
 
         try:
