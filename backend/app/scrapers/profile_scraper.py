@@ -324,7 +324,11 @@ class LinkedInProfileScraper(ProfileScraper):
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
-                    "--disable-web-security",
+                    "--disable-gpu",
+                    "--disable-dev-shm-usage",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--window-size=1280,720",
                 ],
             )
 
@@ -405,45 +409,99 @@ class LinkedInProfileScraper(ProfileScraper):
     async def _login(self, page: "PwPage") -> None:
         """Log into LinkedIn and wait until login completes or fail.
 
+        Uses multiple strategies to overcome LinkedIn's headless detection:
+        1. Type fields slowly (more human than fill)
+        2. Click the submit button explicitly (more reliable than Enter)
+        3. Fallback to pressing Enter if button is hidden
+        4. Diagnose what went wrong (wrong creds, browser blocked, challenge)
+
         Raises
         ------
         ValueError
-            If login fails (wrong credentials, challenge page, or timeout).
+            If login fails with details about the failure reason.
         """
         await page.goto("https://www.linkedin.com/login", timeout=20000)
         await page.wait_for_timeout(3000)
 
-        # LinkedIn uses dynamic Sdui-generated IDs. Find fields by type.
+        # --- Wait for the form to be ready ---
         email_input = page.locator("input[type=email]").first
         password_input = page.locator("input[type=password]").first
         await email_input.wait_for(state="attached", timeout=15000)
         await password_input.wait_for(state="attached", timeout=5000)
 
-        # LinkedIn uses Sdui with hidden fields — force=True bypasses visibility check
-        await email_input.fill(self._email, force=True)
-        await password_input.fill(self._password, force=True)
-        await password_input.press("Enter")
+        # Small human-like pause before typing
+        await page.wait_for_timeout(500)
 
-        # Wait for URL to change away from /login (indicates login processed)
+        # Use type() instead of fill() — simulates real keystrokes,
+        # which LinkedIn's Sdui form handler expects
+        await email_input.type(self._email, delay=40)
+        await page.wait_for_timeout(300)
+        await password_input.type(self._password, delay=30)
+        await page.wait_for_timeout(600)
+
+        # --- Submit ---
+        # Try clicking the submit button first
+        submit_btn = page.locator("button[type=submit]").first
+        btn_visible = False
         try:
-            await page.wait_for_function(
-                "() => !window.location.href.includes('/login')",
-                timeout=15000,
-            )
+            await submit_btn.wait_for(state="visible", timeout=3000)
+            btn_visible = True
         except Exception:
-            # Timeout means we never left /login — credentials likely wrong
-            raise ValueError(
-                "LinkedIn login failed — wrong credentials or expired password. "
-                "Update LINKEDIN_EMAIL and LINKEDIN_PASSWORD in .env",
-            )
+            pass
 
-        # Additional wait for any post-login redirects (2FA, feed, etc.)
+        # Try to ensure the form processes our input before submitting
+        await page.wait_for_timeout(300)
+
+        if btn_visible:
+            await submit_btn.click()
+        else:
+            # Fallback: press Enter
+            logger.info("Submit button not visible, pressing Enter")
+            await password_input.press("Enter")
+
+        # --- Wait for navigation result ---
         await page.wait_for_timeout(3000)
 
-        # Check for common post-login challenge pages
+        # Quick check: are we on a checkpoint/challenge page?
         current_url = page.url.lower()
         if "checkpoint" in current_url or "challenge" in current_url:
             raise ValueError(
                 "LinkedIn requires additional verification (2FA or device challenge). "
-                "Try logging in manually in a regular browser first, or use the Scrapin.io API key.",
+                "Run `python backend/tools/setup_linkedin_auth.py` to log in manually "
+                "in a visible browser window — 2FA will work there.",
+            )
+
+        # Longer wait: wait for ANY navigation away from /login
+        if "/login" in current_url:
+            try:
+                await page.wait_for_function(
+                    "() => !window.location.href.includes('/login')",
+                    timeout=12000,
+                )
+            except Exception:
+                # Still on /login after submit — diagnose
+                body_text = await page.inner_text("body")
+
+                if any(w in body_text.lower() for w in ("incorrect", "not match", "wrong password")):
+                    raise ValueError(
+                        "LinkedIn says the email or password is incorrect. "
+                        "Verify your LINKEDIN_EMAIL and LINKEDIN_PASSWORD in .env",
+                    )
+                raise ValueError(
+                    "LinkedIn login blocked — the browser automation was detected.\n\n"
+                    "  Your credentials are probably correct, but LinkedIn's anti-bot "
+                    "system rejected the headless login.\n\n"
+                    "  Solution — run this once to save a real browser session:\n\n"
+                    "    python backend/tools/setup_linkedin_auth.py\n\n"
+                    "  It opens a visible Chromium window for manual login (2FA works too).\n"
+                    "  After that, the scraper reuses the saved session automatically.",
+                )
+
+        # Final check for challenge pages (post-navigation)
+        current_url = page.url.lower()
+        if "checkpoint" in current_url or "challenge" in current_url:
+            raise ValueError(
+                "LinkedIn requires additional verification (2FA or device challenge). "
+                "Run `python backend/tools/setup_linkedin_auth.py` to log in manually "
+                "in a visible browser window.",
             )
