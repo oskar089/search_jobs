@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 
+from app.config import settings as app_settings
 from app.models import CurriculumVitae, Profile
 from app.profiles.schemas import (
     CVParseResult,
@@ -78,12 +79,17 @@ _MOCK_CV_PARSE_RESULT = CVParseResult(
 class TestImportLinkedIn:
     """POST /api/profiles/import/linkedin"""
 
+    _API_KEY_PATCH = patch.object(
+        app_settings, "linkedin_api_key", "test-api-key",
+    )
+
     async def test_import_linkedin_success(
         self,
         async_client: AsyncClient,
         auth_headers: dict[str, str],
     ):
         """Import from a valid LinkedIn URL returns ``ImportedProfile``."""
+        self._API_KEY_PATCH.start()
         with patch(
             "app.profiles.linkedin_importer.LinkedInImporter.import_profile",
             new=AsyncMock(return_value=_MOCK_IMPORTED_PROFILE),
@@ -93,6 +99,7 @@ class TestImportLinkedIn:
                 json={"url": "https://linkedin.com/in/testuser"},
                 headers=auth_headers,
             )
+        self._API_KEY_PATCH.stop()
 
         assert resp.status_code == 200
         body = resp.json()
@@ -113,20 +120,13 @@ class TestImportLinkedIn:
         auth_headers: dict[str, str],
     ):
         """Import with a URL that does not contain 'linkedin.com' returns 422."""
-        with patch(
-            "app.profiles.linkedin_importer.LinkedInImporter.import_profile",
-            new=AsyncMock(
-                side_effect=ValueError(
-                    "Invalid LinkedIn URL: 'https://example.com'. "
-                    "URL must contain 'linkedin.com'.",
-                ),
-            ),
-        ):
-            resp = await async_client.post(
-                "/api/profiles/import/linkedin",
-                json={"url": "https://example.com"},
-                headers=auth_headers,
-            )
+        self._API_KEY_PATCH.start()
+        resp = await async_client.post(
+            "/api/profiles/import/linkedin",
+            json={"url": "https://example.com"},
+            headers=auth_headers,
+        )
+        self._API_KEY_PATCH.stop()
 
         assert resp.status_code == 422
         assert "Invalid LinkedIn URL" in resp.json()["detail"]
@@ -137,6 +137,7 @@ class TestImportLinkedIn:
         auth_headers: dict[str, str],
     ):
         """Import when the LinkedIn API returns an HTTP error returns 502."""
+        self._API_KEY_PATCH.start()
         with patch(
             "app.profiles.linkedin_importer.LinkedInImporter.import_profile",
             new=AsyncMock(
@@ -150,6 +151,7 @@ class TestImportLinkedIn:
                 json={"url": "https://linkedin.com/in/testuser"},
                 headers=auth_headers,
             )
+        self._API_KEY_PATCH.stop()
 
         assert resp.status_code == 502
         assert "API error" in resp.json()["detail"]
@@ -160,6 +162,7 @@ class TestImportLinkedIn:
         auth_headers: dict[str, str],
     ):
         """Import when the LinkedIn API times out returns 504."""
+        self._API_KEY_PATCH.start()
         with patch(
             "app.profiles.linkedin_importer.LinkedInImporter.import_profile",
             new=AsyncMock(
@@ -173,6 +176,7 @@ class TestImportLinkedIn:
                 json={"url": "https://linkedin.com/in/testuser"},
                 headers=auth_headers,
             )
+        self._API_KEY_PATCH.stop()
 
         assert resp.status_code == 504
         assert "timed out" in resp.json()["detail"]

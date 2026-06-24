@@ -8,18 +8,20 @@ build/
 .venv/
 venv/
 env/
-*.env
-*.env.local
 
-# Node (previous stack - cleaned)
+# Node
 node_modules/
+
+# Secrets & env
+.env
+.env.local
+*.env
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
 
 # OS
 .DS_Store
@@ -28,20 +30,27 @@ Thumbs.db
 # Logs
 *.log
 
+# Git
+.git/
+.gitignore
+
 # Coverage
 coverage/
 htmlcov/
 .coverage
 .coverage.*
 
-# Alembic
+# Pytest
+.pytest_cache/
+
+# Alembic / SQLite
 *.sqlite3
 
-# Docker
+# Docker (prevent sending docker files to build context)
 .docker/
 
-# Uploads (CVs, user files)
+# Uploaded CVs (backup, not needed for build)
 uploads/
 
-# Cache
-.pytest_cache/
+# Project-specific
+start.ps1
