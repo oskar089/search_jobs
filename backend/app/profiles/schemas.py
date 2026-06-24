@@ -24,9 +24,10 @@ class EducationItem(BaseModel):
 class ExperienceItem(BaseModel):
     company: str
     role: str
-    start_date: str
+    start_date: str = ""
     end_date: str | None = None
     description: str | None = None
+    location: str | None = None
     current: bool = False
 
 

@@ -84,23 +84,47 @@ async def import_linkedin(
     body: ImportUrlRequest,
     user_id: str = Depends(get_current_user_id),  # noqa: ARG001
 ):
-    """Import profile data from a LinkedIn URL via third-party API.
+    """Import profile data from a LinkedIn URL.
 
-    Returns parsed fields for the user to review before saving.
+    Uses the free Playwright-based scraper by default.
+    Falls back to Scrapin.io API only if ``linkedin_api_key`` is set in .env.
     """
-    importer = LinkedInImporter(
-        api_key=settings.linkedin_api_key,
-        api_url=settings.linkedin_api_url,
-    )
-    try:
-        return await importer.import_profile(body.url)
-    except ValueError as e:
-        msg = str(e)
-        if msg.startswith("Invalid LinkedIn URL"):
-            raise HTTPException(status_code=422, detail=msg)
-        if "timed out" in msg or "rate limit" in msg:
-            raise HTTPException(status_code=504, detail=msg)
-        raise HTTPException(status_code=502, detail=msg)
+    if settings.linkedin_api_key:
+        # Paid API path (Scrapin.io / ProxyCurl)
+        importer = LinkedInImporter(
+            api_key=settings.linkedin_api_key,
+            api_url=settings.linkedin_api_url,
+        )
+        try:
+            return await importer.import_profile(body.url)
+        except ValueError as e:
+            msg = str(e)
+            if msg.startswith("Invalid LinkedIn URL"):
+                raise HTTPException(status_code=422, detail=msg)
+            if "timed out" in msg or "rate limit" in msg:
+                raise HTTPException(status_code=504, detail=msg)
+            raise HTTPException(status_code=502, detail=msg)
+    else:
+        # Free Playwright path
+        from app.scrapers.profile_scraper import LinkedInProfileScraper
+
+        if "linkedin.com" not in body.url:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid LinkedIn URL: '{body.url}'. URL must contain 'linkedin.com'.",
+            )
+
+        scraper = LinkedInProfileScraper(
+            email=settings.linkedin_email,
+            password=settings.linkedin_password,
+        )
+        try:
+            return await scraper.parse_profile(body.url)
+        except ValueError as e:
+            msg = str(e)
+            if "login" in msg.lower():
+                raise HTTPException(status_code=401, detail=msg)
+            raise HTTPException(status_code=502, detail=f"LinkedIn scrape failed: {e}")
 
 
 @router.post("/import/infojobs", response_model=ImportedProfile)

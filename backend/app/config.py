@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     app_env: Literal["development", "staging", "production"] = "development"
     debug: bool = True
     api_prefix: str = "/api"
+    app_url: str = "http://localhost:5173"
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
     # Database
@@ -39,9 +40,11 @@ class Settings(BaseSettings):
     # Matching
     match_threshold: int = 75
 
-    # LinkedIn Import
-    linkedin_api_key: str = ""
+    # LinkedIn Import (free Playwright scraper)
+    linkedin_api_key: str = ""   # Leave empty to use free Playwright scraper
     linkedin_api_url: str = "https://api.scrapin.io"
+    linkedin_email: str = ""      # Optional: for Playwright auto-login
+    linkedin_password: str = ""   # Optional: for Playwright auto-login
 
     # File Uploads
     upload_dir: str = "uploads/cv"

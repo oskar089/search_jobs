@@ -19,4 +19,5 @@ import app.tasks.apply  # noqa: E402, F401
 import app.tasks.match  # noqa: E402, F401
 import app.tasks.notify  # noqa: E402, F401
 import app.tasks.orchestrator  # noqa: E402, F401
+import app.tasks.scheduler  # noqa: E402, F401
 import app.tasks.scrape  # noqa: E402, F401
