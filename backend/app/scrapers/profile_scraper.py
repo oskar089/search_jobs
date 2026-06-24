@@ -301,13 +301,13 @@ class LinkedInProfileScraper(ProfileScraper):
                 # Wait a moment for dynamic content to render
                 await page.wait_for_timeout(3000)
 
-                # Check if we hit a login wall (redirected to/login)
-                current_url = page.url
-                if "/login" in current_url and "linkedin.com" in current_url:
+                # Check if we hit a login/auth wall (redirected to /login or /authwall)
+                current_url = page.url.lower()
+                if ("/login" in current_url or "/authwall" in current_url or "/signup" in current_url) and "linkedin.com" in current_url:
                     raise ValueError(
                         "LinkedIn requires login to view this profile. "
-                        "Set LINKEDIN_EMAIL and LINKEDIN_PASSWORD in .env "
-                        "to auto-login, or use a different import method.",
+                        "Check your LINKEDIN_EMAIL and LINKEDIN_PASSWORD in .env, "
+                        "or use the Scrapin.io API key for reliable access.",
                     )
 
                 # --- Extract fields ---
@@ -335,10 +335,15 @@ class LinkedInProfileScraper(ProfileScraper):
                 await browser.close()
 
     async def _login(self, page: "PwPage") -> None:
-        """Log into LinkedIn if credentials are provided."""
+        """Log into LinkedIn and wait until login completes or fail.
 
+        Raises
+        ------
+        ValueError
+            If login fails (wrong credentials, challenge page, or timeout).
+        """
         await page.goto("https://www.linkedin.com/login", timeout=20000)
-        await page.wait_for_timeout(5000)
+        await page.wait_for_timeout(3000)
 
         # LinkedIn uses dynamic Sdui-generated IDs. Find fields by type.
         email_input = page.locator("input[type=email]").first
@@ -351,5 +356,26 @@ class LinkedInProfileScraper(ProfileScraper):
         await password_input.fill(self._password, force=True)
         await password_input.press("Enter")
 
-        # Wait for navigation to complete
-        await page.wait_for_timeout(5000)
+        # Wait for URL to change away from /login (indicates login processed)
+        try:
+            await page.wait_for_function(
+                "() => !window.location.href.includes('/login')",
+                timeout=15000,
+            )
+        except Exception:
+            # Timeout means we never left /login — credentials likely wrong
+            raise ValueError(
+                "LinkedIn login failed — wrong credentials or expired password. "
+                "Update LINKEDIN_EMAIL and LINKEDIN_PASSWORD in .env",
+            )
+
+        # Additional wait for any post-login redirects (2FA, feed, etc.)
+        await page.wait_for_timeout(3000)
+
+        # Check for common post-login challenge pages
+        current_url = page.url.lower()
+        if "checkpoint" in current_url or "challenge" in current_url:
+            raise ValueError(
+                "LinkedIn requires additional verification (2FA or device challenge). "
+                "Try logging in manually in a regular browser first, or use the Scrapin.io API key.",
+            )
