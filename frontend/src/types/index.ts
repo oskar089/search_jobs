@@ -121,8 +121,11 @@ export interface Application {
   match_score: number | null;
   company: string;
   job_title: string;
+  job_url: string | null;
   portal_name: string;
   cover_letter_generated: boolean;
+  cover_letter_text: string | null;
+  error_message: string | null;
   submitted_at: string | null;
   created_at: string;
 }
@@ -169,6 +172,14 @@ export interface CVParseResult {
   file_name: string;
   file_size: number;
   parsed_data: ImportedProfile;
+}
+
+export interface NotificationPreferences {
+  in_app: boolean;
+  email: boolean;
+  on_submit: boolean;
+  on_fail: boolean;
+  on_match: boolean;
 }
 
 export interface MergeRequest {

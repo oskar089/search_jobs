@@ -1,8 +1,16 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listNotifications, markNotificationRead } from "../lib/notifications";
+import {
+  listNotifications,
+  markNotificationRead,
+  getNotificationPreferences,
+  updateNotificationPreferences,
+} from "../lib/notifications";
 import { Card } from "../components/ui/Card";
 import { Badge } from "../components/ui/Badge";
-import { Bell, CheckCircle } from "lucide-react";
+import { Toggle } from "../components/ui/Toggle";
+import { Bell, CheckCircle, Check } from "lucide-react";
+import type { NotificationPreferences } from "../types";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -25,12 +33,46 @@ const typeVariants: Record<string, "default" | "success" | "warning" | "danger" 
   warning: "warning",
 };
 
+const PREFERENCE_LABELS: { key: keyof NotificationPreferences; label: string; description: string }[] = [
+  {
+    key: "in_app",
+    label: "In-app notifications",
+    description: "Receive notifications inside the application",
+  },
+  {
+    key: "email",
+    label: "Email notifications",
+    description: "Receive notifications via email",
+  },
+  {
+    key: "on_submit",
+    label: "Successful submissions",
+    description: "Notify when an application is submitted successfully",
+  },
+  {
+    key: "on_fail",
+    label: "Failed applications",
+    description: "Notify when an application fails",
+  },
+  {
+    key: "on_match",
+    label: "New job matches",
+    description: "Notify when new jobs match your profile",
+  },
+];
+
 export default function NotificationsPage() {
   const queryClient = useQueryClient();
+  const [showSaved, setShowSaved] = useState(false);
 
   const { data: notifications, isLoading } = useQuery({
     queryKey: ["notifications"],
     queryFn: listNotifications,
+  });
+
+  const { data: preferences } = useQuery({
+    queryKey: ["notification-preferences"],
+    queryFn: getNotificationPreferences,
   });
 
   const markReadMutation = useMutation({
@@ -39,6 +81,23 @@ export default function NotificationsPage() {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },
   });
+
+  const updatePrefsMutation = useMutation({
+    mutationFn: updateNotificationPreferences,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notification-preferences"] });
+      setShowSaved(true);
+      setTimeout(() => setShowSaved(false), 2500);
+    },
+  });
+
+  const handleToggle = (key: keyof NotificationPreferences) => {
+    if (!preferences) return;
+    updatePrefsMutation.mutate({
+      ...preferences,
+      [key]: !preferences[key],
+    });
+  };
 
   if (isLoading) {
     return <div className="text-sm text-slate-400">Loading notifications...</div>;
@@ -57,6 +116,38 @@ export default function NotificationsPage() {
         Stay updated on your applications and matches.
       </p>
 
+      {/* Notification Preferences */}
+      <Card className="mb-8">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-white">Notification Preferences</h2>
+          {showSaved && (
+            <span className="flex items-center gap-1 text-xs text-green-400">
+              <Check className="h-3.5 w-3.5" />
+              Preferences saved
+            </span>
+          )}
+        </div>
+        <p className="mb-4 mt-1 text-xs text-slate-400">
+          Choose which notification types and channels you want to receive.
+        </p>
+        <div className="space-y-3">
+          {PREFERENCE_LABELS.map(({ key, label, description }) => (
+            <div key={key} className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-200">{label}</p>
+                <p className="text-xs text-slate-500">{description}</p>
+              </div>
+              <Toggle
+                checked={preferences?.[key] ?? false}
+                onChange={() => handleToggle(key)}
+                disabled={updatePrefsMutation.isPending}
+              />
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Notifications List */}
       {sorted.length === 0 ? (
         <Card>
           <div className="flex flex-col items-center justify-center py-16 text-slate-500">

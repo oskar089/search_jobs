@@ -880,24 +880,27 @@ export default function ProfilePage() {
 
             {/* Modal footer buttons */}
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
+              <Button type="button" variant="secondary" onClick={() => setIsPreviewOpen(false)}>
+                Cancelar
+              </Button>
               {previewMode === "cv" ? (
-                <Button type="button" variant="secondary" onClick={() => setIsPreviewOpen(false)}>
-                  Cerrar
+                <Button
+                  type="button"
+                  variant="primary"
+                  isLoading={previewMutation.isPending}
+                  onClick={handlePreviewSave}
+                >
+                  Guardar en perfil
                 </Button>
               ) : (
-                <>
-                  <Button type="button" variant="secondary" onClick={() => setIsPreviewOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="primary"
-                    isLoading={previewMutation.isPending}
-                    onClick={handlePreviewSave}
-                  >
-                    Guardar
-                  </Button>
-                </>
+                <Button
+                  type="button"
+                  variant="primary"
+                  isLoading={previewMutation.isPending}
+                  onClick={handlePreviewSave}
+                >
+                  Guardar
+                </Button>
               )}
             </div>
           </div>

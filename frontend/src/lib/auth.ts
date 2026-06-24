@@ -15,6 +15,12 @@ export async function registerUser(data: RegisterRequest): Promise<TokenResponse
   });
 }
 
+export async function refreshToken(): Promise<TokenResponse> {
+  return api<TokenResponse>("/auth/refresh", {
+    method: "POST",
+  });
+}
+
 export async function getMe(): Promise<UserResponse> {
   return api<UserResponse>("/auth/me");
 }

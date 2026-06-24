@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../context/AuthContext";
 import { cn } from "../lib/utils";
+import { listNotifications } from "../lib/notifications";
 import { LayoutDashboard, User, Globe, Briefcase, Bell, LogOut } from "lucide-react";
 
 const navItems = [
@@ -16,6 +18,15 @@ export function Layout() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Unread notification count
+  const { data: notifs } = useQuery({
+    queryKey: ["notifications"],
+    queryFn: listNotifications,
+    enabled: isAuthenticated,
+    refetchInterval: 30_000,
+  });
+  const unreadCount = notifs?.filter((n) => !n.is_read).length ?? 0;
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -66,6 +77,11 @@ export function Layout() {
               >
                 <Icon className="w-5 h-5" />
                 {item.label}
+                {item.label === "Notifications" && unreadCount > 0 && (
+                  <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-bold text-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
               </Link>
             );
           })}
