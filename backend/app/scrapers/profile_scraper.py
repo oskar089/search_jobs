@@ -292,16 +292,14 @@ class LinkedInProfileScraper(ProfileScraper):
     """
 
     profile_selectors: dict[str, str] = {
-        # Main fields (public profile)
-        "headline": "div.text-body-medium",
-        "summary": "section.summary div.inline-show-more-text",
-        "skills": "span.pill.pill--expandable",
-        "location": "span.text-body-small.inline t-black--light",
-        # Experience cards
-        "experience_card": "li.profile-section-card",
-        "experience_title": "h3.profile-section-card__title",
-        "experience_company": "p.profile-section-card__subtitle",
-        "experience_description": "div.inline-show-more-text",
+        # LinkedIn uses CSS-in-JS with hashed class names — semantic selectors
+        # don't work. Instead we use stable data-testid attributes.
+        "headline": "",  # Handled by JS extraction below
+        "summary": "",
+        "skills": "",  # Handled by JS extraction below
+        "experience_section": "[data-testid^='profile_ExperienceTopLevelSection_']",
+        "skills_section": "[data-testid^='profile_Skills_']",
+        "education_section": "[data-testid^='profile_EducationTopLevelSection_']",
     }
 
     def __init__(
@@ -375,22 +373,70 @@ class LinkedInProfileScraper(ProfileScraper):
                         "or use the Scrapin.io API key for reliable access.",
                     )
 
-                # --- Extract fields ---
-                headline = await self._get_text(page, "headline")
-                summary = await self._get_text(page, "summary")
+                # --- Scroll workspace to trigger lazy section loading ---
+                await page.evaluate("""
+                    const ws = document.getElementById('workspace');
+                    if (ws) {
+                        ws.scrollTo(0, ws.scrollHeight);
+                    } else {
+                        window.scrollTo(0, document.body.scrollHeight);
+                    }
+                """)
+                await page.wait_for_timeout(2000)
 
-                raw_skills = await self._get_all_text(page, "skills")
+                # --- Extract headline via JS (classes are hashed) ---
+                headline = await page.evaluate("""
+                    () => {
+                        const els = document.querySelectorAll('p');
+                        for (const el of els) {
+                            const text = el.textContent.trim();
+                            if (text.length > 10 && text.length < 200
+                                && !text.includes('http')
+                                && el.closest('[data-testid]') === null) {
+                                return text;
+                            }
+                        }
+                        return null;
+                    }
+                """) or None
+
+                # --- Extract skills from data-testid section ---
+                raw_skills = await page.evaluate("""
+                    () => {
+                        const section = document.querySelector('[data-testid^="profile_Skills_"]');
+                        if (!section) return [];
+                        const items = section.querySelectorAll('[data-testid^="profile_Skill_"]');
+                        if (items.length > 0) {
+                            return Array.from(items).map(el => el.textContent.trim()).filter(Boolean);
+                        }
+                        // Fallback: extract all visible text items
+                        const texts = new Set();
+                        section.querySelectorAll('span, p, div[class*="_52e8c184"]').forEach(el => {
+                            const t = el.textContent.trim();
+                            // Filter out section headings, empty text, and boilerplate
+                            if (t && t.length > 1 && t.length < 100
+                                && !t.startsWith('Aptitudes')
+                                && !t.startsWith('Skills')
+                                && !t.startsWith('Mostrar')
+                                && t !== '·') {
+                                texts.add(t);
+                            }
+                        });
+                        return Array.from(texts);
+                    }
+                """) or []
                 skills = [
                     SkillItem(name=s, level=_DEFAULT_SKILL_LEVEL)
                     for s in raw_skills
                     if s
                 ]
 
-                work_experience = await self._extract_experience(page)
+                # --- Extract experience by parsing section text ---
+                work_experience = await self._extract_linkedin_experience(page)
 
                 return ImportedProfile(
                     headline=headline,
-                    summary=summary,
+                    summary="",
                     skills=skills,
                     work_experience=work_experience,
                     linkedin_url=url,
@@ -505,3 +551,75 @@ class LinkedInProfileScraper(ProfileScraper):
                 "Run `python backend/tools/setup_linkedin_auth.py` to log in manually "
                 "in a visible browser window.",
             )
+
+    async def _extract_linkedin_experience(self, page: "PwPage") -> list:
+        """Extract work experience from LinkedIn's current DOM.
+
+        LinkedIn uses CSS-in-JS with hashed class names, so we can't
+        rely on semantic selectors. Instead, we parse the text content
+        of the experience section and split it into cards using <hr>
+        separators.
+        """
+        from app.profiles.schemas import ExperienceItem
+
+        cards = await page.evaluate("""
+            () => {
+                const section = document.querySelector(
+                    '[data-testid^="profile_ExperienceTopLevelSection_"]'
+                );
+                if (!section) return [];
+
+                // Get the card container (second div inside the section)
+                const container = section.children[1];
+                if (!container) return [];
+
+                // Split cards by <hr> separator
+                const cards = [];
+                let currentCard = [];
+
+                for (const child of container.children) {
+                    if (child.tagName === 'HR') {
+                        if (currentCard.length > 0) {
+                            cards.push(currentCard.join('\\n'));
+                            currentCard = [];
+                        }
+                        continue;
+                    }
+                    const text = child.textContent.trim();
+                    if (text && !text.startsWith('·')) {
+                        currentCard.push(text);
+                    }
+                }
+                if (currentCard.length > 0) {
+                    cards.push(currentCard.join('\\n'));
+                }
+                return cards;
+            }
+        """) or []
+
+        results = []
+        for card_text in cards:
+            lines = [l.strip() for l in card_text.split('\n') if l.strip()]
+            if not lines:
+                continue
+
+            # First line is usually the role/title
+            role = lines[0] if len(lines) > 0 else "Unknown"
+            # Second line is usually the company
+            company_text = lines[1] if len(lines) > 1 else ""
+            # Remove date ranges (e.g. "· 2 yrs 6 mos" or "· 2020 - 2023")
+            # Dates appear at the end of the company line or as separate lines
+            description = '\n'.join(lines[2:]) if len(lines) > 2 else None
+            # Clean up date ranges from company
+            if '·' in company_text:
+                company_text = company_text.split('·')[0].strip()
+
+            results.append(
+                ExperienceItem(
+                    company=company_text or "Unknown",
+                    role=role or "Unknown",
+                    description=description,
+                ),
+            )
+
+        return results
