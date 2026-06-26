@@ -45,7 +45,8 @@ class TestSettingsPreservedBehavior:
         assert s.app_name == "Search Jobs"
         assert s.api_prefix == "/api"
         assert s.jwt_algorithm == "HS256"
-        assert s.jwt_expires_in_minutes == 10080
+        assert s.jwt_expires_in_minutes == 15
+        assert s.refresh_token_expiry_days == 7
         assert s.upload_dir == "uploads/cv"
 
     def test_settings_app_env_defaults_development(self, monkeypatch):

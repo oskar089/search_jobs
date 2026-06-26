@@ -24,3 +24,10 @@ export async function refreshToken(): Promise<TokenResponse> {
 export async function getMe(): Promise<UserResponse> {
   return api<UserResponse>("/auth/me");
 }
+
+export async function logoutUser(): Promise<void> {
+  await api<{ message: string }>("/auth/logout", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}

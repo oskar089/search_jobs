@@ -35,7 +35,8 @@ class Settings(BaseSettings):
     # Auth — REQUIRED, no default
     jwt_secret: str
     jwt_algorithm: str = "HS256"
-    jwt_expires_in_minutes: int = 10080
+    jwt_expires_in_minutes: int = 15
+    refresh_token_expiry_days: int = 7
 
     # Redis (Celery) — REQUIRED, no default
     redis_url: str

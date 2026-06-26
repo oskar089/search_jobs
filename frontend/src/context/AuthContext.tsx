@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
-import { getMe, loginUser, registerUser } from "../lib/auth";
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { getMe, loginUser, registerUser, logoutUser } from "../lib/auth";
 import type { UserResponse } from "../types";
 
 interface AuthContextType {
@@ -8,7 +8,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -18,35 +18,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
+    // On mount, try to get the current user via cookie-based auth.
+    // Cookies are auto-sent by the browser; no localStorage token needed.
     getMe()
       .then(setUser)
-      .catch(() => localStorage.removeItem("token"))
+      .catch(() => {
+        /* 401 — not authenticated, that's OK */
+      })
       .finally(() => setIsLoading(false));
   }, []);
 
   const login = async (email: string, password: string) => {
-    const { access_token } = await loginUser({ email, password });
-    localStorage.setItem("token", access_token);
+    await loginUser({ email, password });
+    // Cookies are auto-set by the backend login endpoint
     const userData = await getMe();
     setUser(userData);
   };
 
   const register = async (name: string, email: string, password: string) => {
-    const { access_token } = await registerUser({ email, password, name });
-    localStorage.setItem("token", access_token);
+    await registerUser({ email, password, name });
+    // Cookies are auto-set by the backend register endpoint
     const userData = await getMe();
     setUser(userData);
   };
 
-  const logout = () => {
-    localStorage.removeItem("token");
+  const logout = useCallback(async () => {
+    try {
+      await logoutUser();
+    } catch {
+      // Even if the API call fails, clear local state
+    }
     setUser(null);
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, register, logout }}>
