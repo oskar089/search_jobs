@@ -79,9 +79,12 @@ services:
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173}"
 
       # Auth
-      JWT_SECRET: "${JWT_SECRET:-change-me-to-a-random-secret}"
+      JWT_SECRET: "${JWT_SECRET}"
       JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
       JWT_EXPIRES_IN_MINUTES: "${JWT_EXPIRES_IN_MINUTES:-10080}"
+
+      # Redis auth
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
 
       # LLM / OpenAI
       LLM_API_KEY: "${LLM_API_KEY:-}"
@@ -133,9 +136,12 @@ services:
       API_PREFIX: "${API_PREFIX:-/api}"
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173}"
 
-      JWT_SECRET: "${JWT_SECRET:-change-me-to-a-random-secret}"
+      JWT_SECRET: "${JWT_SECRET}"
       JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
       JWT_EXPIRES_IN_MINUTES: "${JWT_EXPIRES_IN_MINUTES:-10080}"
+
+      # Redis auth
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
 
       LLM_API_KEY: "${LLM_API_KEY:-}"
       LLM_MODEL: "${LLM_MODEL:-gpt-4}"
@@ -183,7 +189,10 @@ services:
       APP_ENV: "${APP_ENV:-development}"
       DEBUG: "${DEBUG:-false}"
 
-      JWT_SECRET: "${JWT_SECRET:-change-me-to-a-random-secret}"
+      JWT_SECRET: "${JWT_SECRET}"
+
+      # Redis auth
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
 
       LLM_API_KEY: "${LLM_API_KEY:-}"
       LLM_MODEL: "${LLM_MODEL:-gpt-4}"
