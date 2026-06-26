@@ -78,25 +78,28 @@ class Settings(BaseSettings):
         """
         errors: list[str] = []
 
-        # JWT_SECRET length check
-        if len(self.jwt_secret) < 32:
+        # JWT_SECRET length check (strip to reject whitespace-only values)
+        jwt_secret = self.jwt_secret.strip()
+        if len(jwt_secret) < 32:
             errors.append(
-                f"JWT_SECRET is too short ({len(self.jwt_secret)} chars). "
-                f"Must be at least 32 characters.",
+                "JWT_SECRET is too short. Must be at least 32 characters.",
             )
 
         # Known default values for JWT_SECRET
         known_defaults = {"change-me-to-a-random-secret"}
-        if self.jwt_secret in known_defaults:
+        if jwt_secret in known_defaults:
             errors.append(
                 "JWT_SECRET is set to a known default value. "
                 "Generate a unique secret and set it via JWT_SECRET env var.",
             )
 
-        # DATABASE_URL non-empty check (pydantic already ensures it's set,
-        # but guard against empty-string env var)
-        if not self.database_url:
-            errors.append("DATABASE_URL must not be empty.")
+        # DATABASE_URL non-empty check (strip to reject whitespace-only)
+        if not self.database_url.strip():
+            errors.append("DATABASE_URL must not be empty or whitespace-only.")
+
+        # REDIS_URL non-empty check
+        if not self.redis_url.strip():
+            errors.append("REDIS_URL must not be empty or whitespace-only.")
 
         if errors:
             raise ValueError("\n".join(errors))

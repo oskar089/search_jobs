@@ -253,21 +253,14 @@ class TestStartupWarnings:
 
     def test_missing_llm_key_logs_warning(self, monkeypatch, caplog):
         """Missing LLM_API_KEY logs a warning at startup."""
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/test")
-        monkeypatch.setenv("JWT_SECRET", "a" * 32)
-        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-        monkeypatch.setenv("LLM_API_KEY", "")
+        from app.config import settings
+        from app.main import log_non_critical_warnings
 
-        # Import after env setup
-        from app.main import app
+        # Clear LLM_API_KEY on the already-instantiated settings
+        monkeypatch.setattr(settings, "llm_api_key", "")
 
         with caplog.at_level(logging.WARNING):
-            # Trigger startup event
-            from app.config import settings
-            settings.validate_startup()
+            log_non_critical_warnings()
 
-            # Check if warning was issued for LLM_API_KEY
             llm_warnings = [r.message for r in caplog.records if "LLM_API_KEY" in r.message]
-            assert any("LLM_API_KEY" in msg for msg in llm_warnings) or True
-            # Note: This is a structural test — actual startup logging is tested
-            # more thoroughly in main.py's startup event tests
+            assert len(llm_warnings) > 0, "Expected a warning about missing LLM_API_KEY"
