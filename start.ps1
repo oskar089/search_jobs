@@ -45,7 +45,7 @@ Write-Host ""
 
 # ---- Start services ----
 Write-Host "== start Backend (FastAPI :8000)..." -ForegroundColor Cyan
-$be = Start-Process -PassThru -WindowStyle Normal -FilePath "powershell.exe" -ArgumentList "-NoExit", "-Command", "cd '$backend'; python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+$be = Start-Process -PassThru -WindowStyle Normal -FilePath "powershell.exe" -ArgumentList "-NoExit", "-Command", "cd '$backend'; python run.py"
 Start-Sleep -Seconds 3
 
 Write-Host "== start Frontend (Vite :5173)..." -ForegroundColor Cyan
