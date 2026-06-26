@@ -44,12 +44,11 @@ export async function previewSave(data: MergeRequest): Promise<Profile> {
 }
 
 export async function uploadCv(file: File): Promise<CVParseResult> {
-  const token = localStorage.getItem("token");
   const formData = new FormData();
   formData.append("file", file);
   const res = await fetch(`${API_BASE}/profiles/cv/upload`, {
     method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "include",
     body: formData,
   });
   if (!res.ok) {
@@ -60,9 +59,8 @@ export async function uploadCv(file: File): Promise<CVParseResult> {
 }
 
 export async function downloadCv(cvId: string): Promise<Blob> {
-  const token = localStorage.getItem("token");
   const res = await fetch(`${API_BASE}/profiles/cv/download/${cvId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "include",
   });
   if (!res.ok) throw new ApiError("Download failed", res.status);
   return res.blob();
