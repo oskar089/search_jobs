@@ -51,6 +51,9 @@ quote-style = "double"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore::UserWarning:.*secrets",
+]
 markers = [
     "e2e: marks tests as end-to-end (requires running server)",
     "profile: marks tests related to profile functionality",

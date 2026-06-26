@@ -1,3 +1,8 @@
+"""FastAPI application entry point for Search Jobs backend."""
+
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,9 +15,34 @@ from app.pipeline.router import router as pipeline_router
 from app.portals.router import router as portals_router
 from app.profiles.router import router as profiles_router
 
+logger = logging.getLogger(__name__)
+
+
+def log_non_critical_warnings() -> None:
+    """Log warnings for missing non-critical configuration values."""
+    if not settings.llm_api_key:
+        logger.warning("LLM_API_KEY is not set \u2014 LLM features will be unavailable")
+    if not settings.smtp_host:
+        logger.warning("SMTP_HOST is not set \u2014 email notifications will be unavailable")
+
+
+def run_startup_validation() -> None:
+    """Validate critical configuration at startup and log warnings for non-critical configs."""
+    settings.validate_startup()
+    log_non_critical_warnings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan \u2014 validates config on startup."""
+    run_startup_validation()
+    yield
+
+
 app = FastAPI(
     title=settings.app_name,
     debug=settings.debug,
+    lifespan=lifespan,
 )
 
 # CORS
