@@ -4,24 +4,29 @@ context: |
   Project: search_jobs
   Description: Automatic job search app — scrapes job portals, matches profile, auto-applies, generates AI cover letters
   Repository: https://github.com/oskar089/search_jobs
-  Stack: Python 3.12+ / FastAPI / SQLAlchemy async / Alembic / Celery + Redis / Playwright
-  Architecture: Python backend (FastAPI) + decoupled React/Vite frontend
-  Testing: pytest + pytest-asyncio (not yet configured)
-  Style: ruff (lint + format), mypy (type checking)
+  Backend: Python 3.12+ / FastAPI / SQLAlchemy async / PostgreSQL / Alembic / Celery + Redis / Playwright / OpenAI
+  Frontend: React 19 / Vite 6 / TailwindCSS v4 / TanStack Query v5 / React Router v7 / TypeScript 5.6+
+  Architecture: Python backend (FastAPI) + decoupled React/Vite frontend (Docker Compose)
+  Testing: pytest 8.3+ / pytest-asyncio / pytest-cov / ruff / mypy
+  Style: ruff (lint + format, line-length 100), mypy (type checking)
+  Infra: Docker Compose (6 services: postgres, redis, backend, celery-worker, celery-beat, frontend)
 
 testing:
-  strict_tdd: false
-  reason: No test runner, config, or dependency files found. Project is in initial empty state.
-  runner: null
+  strict_tdd: true
+  reason: |
+    pytest 8.3+ configured in pyproject.toml with pytest-asyncio (asyncio_mode=auto).
+    7 test files across unit, integration, and e2e layers with 8 conftest fixtures.
+    Coverage data exists (.coverage file). See sdd/search_jobs/testing-capabilities.
+  runner: pytest
   layers:
-    unit: { available: false, tool: null }
-    integration: { available: false, tool: null }
-    e2e: { available: false, tool: null }
-  coverage: { available: false, command: null }
+    unit: { available: true, tool: pytest + unittest.mock }
+    integration: { available: true, tool: pytest + httpx AsyncClient + aiosqlite (SQLite test DB) }
+    e2e: { available: true, tool: playwright (Chromium, async API) }
+  coverage: { available: true, command: "pytest --cov=app --cov-report=html tests/" }
   quality:
-    linter: { available: false, command: null }
-    type_checker: { available: false, command: null }
-    formatter: { available: false, command: null }
+    linter: { available: true, command: "ruff check ." }
+    type_checker: { available: true, command: "mypy app" }
+    formatter: { available: true, command: "ruff format ." }
 
 rules:
   proposal:
@@ -37,11 +42,11 @@ rules:
     - Keep tasks completable in one session
   apply:
     - Follow existing code patterns
-    tdd: false
-    test_command: ""
+    tdd: true
+    test_command: "cd backend && pytest -xvs"
   verify:
-    test_command: ""
-    build_command: ""
+    test_command: "cd backend && pytest --cov=app -v"
+    build_command: "cd frontend && npm run build"
     coverage_threshold: 0
   archive:
     - Warn before merging destructive deltas
