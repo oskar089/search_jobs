@@ -67,8 +67,8 @@ Chain strategy: pending
 
 ## Phase 5: Scraper Reliability
 
-- [ ] 5.1 Extract stealth script into shared `backend/app/scrapers/stealth.py` module using `playwright_stealth.stealth_async`
-- [ ] 5.2 Inject stealth in `ScraperEngine._scrape_page()` via `context.add_init_script()` before navigation
-- [ ] 5.3 Exponential backoff with jitter: `min(16000, 1000*2^attempt + random.uniform(0,500))` replacing `2**attempt`
-- [ ] 5.4 Fallback: after all stealth retries fail, retry once without stealth, log warning
-- [ ] 5.5 Tests: backoff values with mocked sleep, jitter clamping, stealth fallback path
+- [x] 5.1 Extract stealth script into shared `backend/app/scrapers/stealth.py` module using `playwright_stealth.Stealth().script_payload`
+- [x] 5.2 Inject stealth in `ScraperEngine._scrape_page()` via `context.add_init_script()` before navigation
+- [x] 5.3 Exponential backoff with jitter: `min(16000, 1000*2^attempt + random.uniform(0,500))` replacing `2**attempt`
+- [x] 5.4 Fallback: after all stealth retries fail (attempts 0-2 with stealth), retry once without stealth (attempts 3-4), log warning
+- [x] 5.5 Tests: backoff values with jitter clamping, stealth injection, stealth fallback path

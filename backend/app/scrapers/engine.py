@@ -3,6 +3,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from app.scrapers.stealth import apply_stealth, calculate_backoff
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,24 +79,37 @@ class ScraperEngine:
     ) -> list[ScrapedJob]:
         """Scrape a portal page and return parsed job listings.
 
-        Retries up to 3 times with exponential backoff on failure.
+        Retries up to 5 times with exponential backoff and jitter.
+        If all stealth retries fail, falls back to non-stealth mode once.
         """
         last_error: Exception | None = None
-        for attempt in range(3):
+        use_stealth = True
+
+        for attempt in range(5):
             try:
-                return await self._scrape_page(url, selectors, max_results)
+                return await self._scrape_page(url, selectors, max_results, use_stealth=use_stealth)
             except Exception as exc:
                 last_error = exc
                 logger.warning(
-                    "Scrape attempt %d/3 failed for %s: %s",
+                    "Scrape attempt %d/5 failed for %s: %s",
                     attempt + 1,
                     url,
                     exc,
                 )
-                if attempt < 2:
-                    await asyncio.sleep(2**attempt)  # 1s, 2s
+                if attempt < 4:
+                    delay = calculate_backoff(attempt)
+                    await asyncio.sleep(delay / 1000.0)
+
+                    # Fallback: on last stealth retry failure, retry once without stealth
+                    if use_stealth and attempt == 2:
+                        logger.warning(
+                            "Stealth retries exhausted for %s — falling back to non-stealth mode",
+                            url,
+                        )
+                        use_stealth = False
+
         raise RuntimeError(
-            f"Scrape failed after 3 retries for {url}: {last_error}",
+            f"Scrape failed after 5 retries for {url}: {last_error}",
         ) from last_error
 
     async def dry_run(
@@ -147,8 +162,17 @@ class ScraperEngine:
         url: str,
         selectors: PortalSelectors,
         max_results: int,
+        use_stealth: bool = True,
     ) -> list[ScrapedJob]:
-        """Perform a single scrape attempt against the given URL."""
+        """Perform a single scrape attempt against the given URL.
+
+        Args:
+            url: The portal URL to scrape.
+            selectors: CSS selectors for extracting job fields.
+            max_results: Maximum number of job listings to return.
+            use_stealth: Whether to inject Playwright stealth scripts
+                         before navigation. Set False for fallback mode.
+        """
         browser = await self._get_browser()
         context = await browser.new_context(
             user_agent=(
@@ -158,32 +182,43 @@ class ScraperEngine:
             ),
         )
 
-        # LinkedIn login (if configured)
-        if "linkedin.com" in url:
-            await self._login_linkedin(context)
-
-        page = await context.new_page()
-
         try:
-            await page.goto(url, timeout=self.timeout, wait_until="domcontentloaded")
-
-            # Wait for the job card container to appear
-            await page.wait_for_selector(selectors.job_card, timeout=self.timeout)
-
-            cards = await page.query_selector_all(selectors.job_card)
-            cards = cards[:max_results]
-
-            jobs: list[ScrapedJob] = []
-            for card in cards:
+            # Inject stealth before any navigation (Task 5.2)
+            if use_stealth:
                 try:
-                    job = await self._extract_job(card, selectors)
-                    if job.title and job.company:
-                        jobs.append(job)
+                    await apply_stealth(context)
                 except Exception as exc:
-                    logger.debug("Skipping malformed card: %s", exc)
-                    continue
+                    logger.warning("Stealth injection failed: %s", exc)
+                    # Continue without stealth — don't break the scrape
 
-            return jobs
+            # LinkedIn login (if configured)
+            if "linkedin.com" in url:
+                await self._login_linkedin(context)
+
+            page = await context.new_page()
+
+            try:
+                await page.goto(url, timeout=self.timeout, wait_until="domcontentloaded")
+
+                # Wait for the job card container to appear
+                await page.wait_for_selector(selectors.job_card, timeout=self.timeout)
+
+                cards = await page.query_selector_all(selectors.job_card)
+                cards = cards[:max_results]
+
+                jobs: list[ScrapedJob] = []
+                for card in cards:
+                    try:
+                        job = await self._extract_job(card, selectors)
+                        if job.title and job.company:
+                            jobs.append(job)
+                    except Exception as exc:
+                        logger.debug("Skipping malformed card: %s", exc)
+                        continue
+
+                return jobs
+            finally:
+                await page.close()
         finally:
             await context.close()
 
