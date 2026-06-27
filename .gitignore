@@ -49,3 +49,9 @@ uploads/
 
 # LinkedIn auth session (cookies — do not commit)
 linkedin_auth.json
+
+# Test database
+backend/test.db
+
+# Build artifacts
+*.tsbuildinfo
