@@ -11,10 +11,71 @@ import uuid
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT
 
 from app.profiles.schemas import CVResponse
+
+# ---------------------------------------------------------------------------
+# File validation constants
+# ---------------------------------------------------------------------------
+
+ALLOWED_EXTENSIONS = {".pdf"}
+ALLOWED_MIME_TYPES = {"application/pdf"}
+PDF_MAGIC = b"%PDF"
+
+
+async def validate_file(file: UploadFile) -> None:
+    """Validate an uploaded file is a genuine PDF by extension, content-type, and magic bytes.
+
+    Parameters
+    ----------
+    file:
+        The uploaded file to validate.
+
+    Raises
+    ------
+    HTTPException
+        422 if any validation check fails.
+    """
+    # 1. Check extension
+    filename = (file.filename or "").lower()
+    if not any(filename.endswith(ext) for ext in ALLOWED_EXTENSIONS):
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Only PDF files are accepted.",
+        )
+
+    # 2. Check content-type
+    content_type = (file.content_type or "").lower()
+    if content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Only PDF files are accepted.",
+        )
+
+    # 3. Check magic bytes (read first 4 bytes)
+    try:
+        header = await file.read(4)
+    except Exception:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Could not read file content.",
+        )
+
+    if not header.startswith(PDF_MAGIC):
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Only PDF files are accepted.",
+        )
+
+    # Reset file position for subsequent reads
+    try:
+        await file.seek(0)
+    except Exception:
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Abstract protocol (swap-friendly for S3)
@@ -142,8 +203,25 @@ class FileStorageService:
     # ------------------------------------------------------------------
 
     def _resolve(self, cv_id: str) -> Path:
-        """Resolve a CV id to a filesystem path, raising if missing."""
-        path = self._upload_dir / f"{cv_id}.pdf"
+        """Resolve a CV id to a filesystem path, raising if missing.
+
+        Validates UUID v4 format to prevent path traversal attacks.
+        Uses ``Path.resolve()`` and verifies the resolved path stays within
+        the upload directory as defense-in-depth.
+        """
+        # Validate UUID v4 format — rejects non-UUID and path traversal strings
+        try:
+            uuid.UUID(cv_id, version=4)
+        except (ValueError, AttributeError):
+            raise FileNotFoundError(f"CV not found: {cv_id}")
+
+        path = (self._upload_dir / f"{cv_id}.pdf").resolve()
+
+        # Defense-in-depth: ensure resolved path is within upload directory
+        resolved_upload = self._upload_dir.resolve()
+        if not str(path).startswith(str(resolved_upload)):
+            raise FileNotFoundError(f"CV not found: {cv_id}")
+
         if not path.exists():
             raise FileNotFoundError(f"CV not found: {cv_id}")
         return path
