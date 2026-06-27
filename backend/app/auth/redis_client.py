@@ -72,3 +72,61 @@ async def clear_user_blacklist(user_id: str) -> None:
         await r.aclose()
     except RedisError:
         logger.warning("Redis: failed to clear blacklist for user %s — continuing", user_id)
+
+
+# ---------------------------------------------------------------------------
+# Account lockout — 5 consecutive failed logins → 15 min lockout
+# ---------------------------------------------------------------------------
+LOCKOUT_THRESHOLD = 5
+LOCKOUT_TTL = 900  # 15 minutes in seconds
+
+
+async def record_failed_login(user_id: str) -> int:
+    """Increment the failed-login counter for a user.
+
+    Sets a 15-minute TTL on the first increment. Returns the current count.
+    Fails gracefully on Redis error — logs warning, returns 0.
+    """
+    try:
+        r = await get_redis()
+        key = f"lockout:{user_id}"
+        count = await r.incr(key)
+        if count == 1:
+            await r.expire(key, LOCKOUT_TTL)
+        await r.close()
+        return count
+    except RedisError:
+        logger.warning("Redis: failed to record failed login for user %s — continuing", user_id)
+        return 0
+
+
+async def is_account_locked(user_id: str) -> bool:
+    """Check if an account is locked (failed-login count >= threshold).
+
+    Returns False on Redis error — safe fallback.
+    """
+    try:
+        r = await get_redis()
+        key = f"lockout:{user_id}"
+        value = await r.get(key)
+        await r.close()
+        if value is None:
+            return False
+        return int(value) >= LOCKOUT_THRESHOLD
+    except RedisError:
+        logger.warning("Redis: failed to check lockout for user %s — allowing", user_id)
+        return False
+
+
+async def clear_lockout(user_id: str) -> None:
+    """Delete the lockout key for a user (successful login).
+
+    Fails gracefully on Redis error — logs warning, continues.
+    """
+    try:
+        r = await get_redis()
+        key = f"lockout:{user_id}"
+        await r.delete(key)
+        await r.close()
+    except RedisError:
+        logger.warning("Redis: failed to clear lockout for user %s — continuing", user_id)

@@ -172,12 +172,18 @@ def mock_redis():
 
         async def delete(self, key: str) -> None:
             redis_data.pop(key, None)
+            redis_hash.pop(key, None)
 
         async def get(self, key: str) -> str | None:
             return redis_hash.get(key)
 
         async def set(self, key: str, value: str, ex: int | None = None):
-            redis_hash[key] = value
+            redis_hash[key] = str(value)
+
+        async def incr(self, key: str) -> int:
+            current = int(redis_hash.get(key, "0"))
+            redis_hash[key] = str(current + 1)
+            return current + 1
 
         async def keys(self, pattern: str):
             import re
@@ -188,6 +194,9 @@ def mock_redis():
             return key in redis_data or key in redis_hash
 
         async def aclose(self) -> None:
+            pass
+
+        async def close(self) -> None:
             pass
 
     mock_instance = MockRedisInstance()
@@ -429,3 +438,93 @@ class TestCookieDualAuth:
         )
         assert response.status_code == 200
         assert response.json()["id"] == test_user.id
+
+
+# ---------------------------------------------------------------------------
+# Task 3.3: Account lockout — 5 consecutive fails → 15min Redis lockout
+# ---------------------------------------------------------------------------
+
+
+class TestAccountLockout:
+    """Account lockout via Redis-backed failed-login counter."""
+
+    async def test_record_failed_login_increments_and_returns_count(
+        self, mock_redis
+    ):
+        """record_failed_login increments the counter each call."""
+        from app.auth.redis_client import record_failed_login
+
+        # First failure → count = 1
+        count = await record_failed_login("user-1")
+        assert count == 1
+
+        # Second failure → count = 2
+        count = await record_failed_login("user-1")
+        assert count == 2
+
+    async def test_is_account_locked_false_when_below_threshold(
+        self, mock_redis
+    ):
+        """is_account_locked returns False when count < 5."""
+        from app.auth.redis_client import is_account_locked, record_failed_login
+
+        await record_failed_login("user-2")  # count = 1
+        assert await is_account_locked("user-2") is False
+
+        await record_failed_login("user-2")  # count = 2
+        await record_failed_login("user-2")  # count = 3
+        await record_failed_login("user-2")  # count = 4
+        assert await is_account_locked("user-2") is False
+
+    async def test_is_account_locked_true_at_threshold(self, mock_redis):
+        """is_account_locked returns True when count >= 5."""
+        from app.auth.redis_client import is_account_locked, record_failed_login
+
+        for _ in range(5):
+            await record_failed_login("user-3")
+
+        assert await is_account_locked("user-3") is True
+
+    async def test_clear_lockout_resets_counter(self, mock_redis):
+        """After clear_lockout, is_account_locked returns False."""
+        from app.auth.redis_client import (
+            clear_lockout,
+            is_account_locked,
+            record_failed_login,
+        )
+
+        for _ in range(5):
+            await record_failed_login("user-4")
+        assert await is_account_locked("user-4") is True
+
+        await clear_lockout("user-4")
+        assert await is_account_locked("user-4") is False
+
+    async def test_successful_login_clears_lockout(
+        self, test_user, mock_redis
+    ):
+        """clear_lockout deletes the lockout counter, allowing future logins."""
+        from app.auth.redis_client import (
+            clear_lockout,
+            is_account_locked,
+            record_failed_login,
+        )
+
+        # Simulate 3 failed attempts
+        await record_failed_login(test_user.id)
+        await record_failed_login(test_user.id)
+        await record_failed_login(test_user.id)
+        assert await is_account_locked(test_user.id) is False
+
+        # Clear the lockout (as would happen on successful login)
+        await clear_lockout(test_user.id)
+        assert await is_account_locked(test_user.id) is False
+
+        # Verify new failures still get counted after clear
+        await record_failed_login(test_user.id)
+        await record_failed_login(test_user.id)
+        assert await is_account_locked(test_user.id) is False  # 2 fails, < threshold
+        await record_failed_login(test_user.id)
+        await record_failed_login(test_user.id)
+        await record_failed_login(test_user.id)  # now 5 total → locked
+        assert await is_account_locked(test_user.id) is True

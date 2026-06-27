@@ -34,10 +34,14 @@ from app.auth.utils import (
 )
 from app.auth.redis_client import (
     blacklist_refresh_token,
+    clear_lockout,
     clear_user_blacklist,
+    is_account_locked,
     is_token_blacklisted,
+    record_failed_login,
 )
 from app.database import get_session
+from app.middleware.rate_limit import limiter
 from app.models import User
 
 logger = logging.getLogger(__name__)
@@ -141,7 +145,9 @@ def _decode_refresh_token(token: str) -> dict | None:
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
 async def register(
+    request: Request,
     body: RegisterRequest,
     response: Response,
     session: AsyncSession = Depends(get_session),
@@ -170,20 +176,40 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def login(
+    request: Request,
     body: LoginRequest,
     response: Response,
     session: AsyncSession = Depends(get_session),
 ):
-    """Authenticate a user and set access_token cookie, return refresh_token."""
+    """Authenticate a user and set access_token cookie, return refresh_token.
+
+    Implements account lockout: 5 consecutive failed attempts lock the
+    account for 15 minutes (backed by Redis). On successful login the
+    lockout counter is cleared.
+    """
     result = await session.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
+    # Early exit if account is locked — skip password check
+    if user and await is_account_locked(user.id):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Account is locked due to too many failed login attempts. Try again in 15 minutes.",
+        )
+
     if not user or not verify_password(body.password, user.password_hash):
+        # Record the failed attempt (only for known users to avoid leaking info)
+        if user:
+            await record_failed_login(user.id)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
+
+    # Successful login — clear lockout
+    await clear_lockout(user.id)
 
     access = create_access_token(user.id)
     refresh = create_refresh_token(user.id)

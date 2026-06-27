@@ -50,11 +50,37 @@ The system MUST execute scrapes asynchronously with configurable concurrency lim
 
 ### Requirement: Scrape Error Handling
 
-The system SHOULD handle scraping failures gracefully without crashing the pipeline.
+The system MUST handle scraping failures gracefully with exponential backoff, jitter, and stealth fallback without crashing the pipeline.
+(Previously: Error handling with basic exponential backoff, no jitter or stealth fallback)
 
-#### Scenario: Network timeout
+#### Scenario: Network timeout with backoff
 
 - GIVEN a portal that is unreachable
-- WHEN the scraper encounters a timeout
-- THEN the system retries up to 3 times with exponential backoff
+- WHEN the scraper encounters a network timeout
+- THEN it retries up to 5 times with exponential backoff and jitter (1s, 2s, 4s, 8s, 16s max)
 - AND marks the portal as errored if all retries fail
+
+#### Scenario: Stealth fallback on failure
+
+- GIVEN a portal that blocks the scraper in stealth mode
+- WHEN all stealth retries fail
+- THEN the system falls back to non-stealth mode and retries once
+- AND logs the stealth failure for monitoring
+
+### Requirement: Playwright Stealth
+
+The system MUST inject Playwright stealth scripts when scraping job portals to reduce bot detection risk.
+
+#### Scenario: Stealth injection on job scrape
+
+- GIVEN a configured job portal scrape
+- WHEN the scraper initializes the browser context
+- THEN it injects stealth scripts before navigating to the portal
+- AND logs whether injection succeeded
+
+#### Scenario: Stealth injection failure
+
+- GIVEN a portal scrape
+- WHEN the stealth script injection fails
+- THEN the system logs the failure
+- AND continues without stealth (scrape proceeds in normal mode)
