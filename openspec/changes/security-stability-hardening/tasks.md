@@ -57,13 +57,13 @@ Chain strategy: pending
 
 ## Phase 4: Infra Hardening
 
-- [ ] 4.1 Multi-stage `backend/Dockerfile`: `builder` stage (pip + playwright install chromium), `runtime` stage (slim, COPY `--from=builder`)
-- [ ] 4.2 CPU/memory limits on all services: backend (0.5/512MB), celery-worker (1/1GB), postgres (1/512MB), redis (0.25/256MB), frontend (0.25/128MB)
-- [ ] 4.3 Health checks for backend (`/health`), celery-worker, celery-beat; update redis healthcheck with `-a $REDIS_PASSWORD`
-- [ ] 4.4 Redis password auth: `--requirepass $REDIS_PASSWORD`, update `REDIS_URL` in all services
-- [ ] 4.5 Internal Docker network: `internal_network` with no public ports for DB/Redis; only backend+frontend expose ports
-- [ ] 4.6 nginx security headers: CSP, `X-Frame-Options DENY`, `X-Content-Type-Options nosniff`, HSTS `31536000; includeSubDomains`
-- [ ] 4.7 SMTP: enforce STARTTLS in notification service; add startup connectivity check with warning log
+- [x] 4.1 Multi-stage `backend/Dockerfile`: `builder` stage (pip + playwright install chromium), `runtime` stage (slim, COPY `--from=builder`)
+- [x] 4.2 CPU/memory limits on all services: backend (0.5/512MB), celery-worker (1/1GB), postgres (1/512MB), redis (0.25/256MB), frontend (0.25/128MB)
+- [x] 4.3 Health checks for backend (`/health`), celery-worker, celery-beat; update redis healthcheck with `-a $REDIS_PASSWORD`
+- [x] 4.4 Redis password auth: `--requirepass $REDIS_PASSWORD`, update `REDIS_URL` in all services
+- [x] 4.5 Internal Docker network: `internal_network` with no public ports for DB/Redis; only backend+frontend expose ports
+- [x] 4.6 nginx security headers: CSP, `X-Frame-Options DENY`, `X-Content-Type-Options nosniff`, HSTS `31536000; includeSubDomains`
+- [x] 4.7 SMTP: enforce STARTTLS in notification service; add startup connectivity check with warning log
 
 ## Phase 5: Scraper Reliability
 
