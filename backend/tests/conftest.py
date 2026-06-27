@@ -26,6 +26,7 @@ from sqlalchemy.ext.compiler import compiles  # noqa: E402
 from app.auth.utils import create_access_token
 from app.database import Base, get_session
 from app.main import app
+from app.middleware.rate_limit import limiter
 
 
 @compiles(ARRAY, "sqlite")
@@ -147,12 +148,16 @@ async def async_client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
     """Return an httpx AsyncClient wired to the FastAPI test app.
 
     The get_session dependency is overridden to use the test DB session.
+    Resets the rate limiter before each test to prevent cross-test pollution.
     """
 
     async def override_get_session():
         yield db_session
 
     app.dependency_overrides[get_session] = override_get_session
+
+    # Reset rate limiter storage so each test starts with fresh counters
+    limiter.reset()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
